@@ -50,6 +50,11 @@
       <div class="muted">저전력 ↔ 고성능 자동 전환 / Gateway / GPU / AK620 / Logs 통합</div>
 
       <div class="grid">
+        <div class="card" id="alertCard" style="display:none; grid-column: 1 / -1; border-color: var(--bad);">
+          <h3 class="bad">Alerts</h3>
+          <ul id="alertList"></ul>
+        </div>
+
         <div class="card" style="grid-column: 1 / -1;">
           <h3>Telemetry & History</h3>
           <div class="grid" style="grid-template-columns: 1fr 1fr 1fr;">
