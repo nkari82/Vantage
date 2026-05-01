@@ -24,10 +24,37 @@ function getBasePowerEstimateW(): number {
 }
 
 function readCpuPackageEnergyMicroJoules(): number | null {
-  if (!fs.existsSync(POWER_CAP_ROOT)) {
+  const hwmonPath = "/sys/class/hwmon";
+  if (!fs.existsSync(hwmonPath)) {
     return null;
   }
 
+  // zenpower 또는 k10temp 탐색
+  const hwmonDirs = fs.readdirSync(hwmonPath);
+  for (const dir of hwmonDirs) {
+    const namePath = path.join(hwmonPath, dir, "name");
+    if (!fs.existsSync(namePath)) continue;
+
+    const driverName = fs.readFileSync(namePath, "utf8").trim();
+    
+    // zenpower 지원 시 전력 데이터 읽기 (power1_input: mW)
+    if (driverName === "zenpower") {
+      const powerPath = path.join(hwmonPath, dir, "power1_input");
+      if (fs.existsSync(powerPath)) {
+        const valMw = Number(fs.readFileSync(powerPath, "utf8").trim());
+        // mW -> uJ (1초당 에너지 = 1W = 1,000,000 uJ)
+        // 실제 zenpower는 uW 단위로 데이터를 제공함
+        if (Number.isFinite(valMw)) {
+          return valMw * 1000; 
+        }
+      }
+    }
+  }
+
+  // 인텔 RAPL fallback
+  if (!fs.existsSync(POWER_CAP_ROOT)) {
+    return null;
+  }
   const packageDirs = fs
     .readdirSync(POWER_CAP_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && /^intel-rapl:\d+$/.test(entry.name))

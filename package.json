@@ -1,0 +1,14 @@
+{
+  "name": "vantage-platform",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/backend",
+    "apps/dashboard"
+  ],
+  "scripts": {
+    "build": "npm run build -w apps/backend && npm run build -w apps/dashboard",
+    "dev:backend": "npm run dev -w apps/backend",
+    "dev:dashboard": "npm run dev -w apps/dashboard"
+  }
+}
