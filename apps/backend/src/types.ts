@@ -6,6 +6,11 @@ export interface Ak620Config {
   maxRefreshInterval: number;
 }
 
+export interface AlertConfig {
+  gpuTempThresholdC: number;
+  memoryUsageThresholdPercent: number;
+}
+
 export interface LowPowerModeConfig {
   gpuPowerLimitW: number;
   cpuGovernor: "powersave" | "performance" | "ondemand";
@@ -36,6 +41,7 @@ export interface AppConfig {
   lowPowerMode: LowPowerModeConfig;
   llmGateway: LlmGatewayConfig;
   powerModes: Record<Exclude<PowerMode, "ADAPTIVE">, PowerModeDetail>;
+  alerts: AlertConfig;
 }
 
 export interface GpuStatus {
@@ -75,4 +81,24 @@ export interface SystemStatus {
   gpus: GpuStatus[];
   gateway: GatewayStatusView;
   ak620: Ak620StatusView;
+  alerts: string[];
+}
+
+export interface PowerModeHistory {
+  timestamp: number;
+  fromMode: PowerMode;
+  toMode: PowerMode;
+  reason: string;
+  duration: number;
+}
+
+export interface GpuMetrics {
+  timestamp: number;
+  gpuIndex: number;
+  temperatureC: number;
+  powerW: number;
+  powerLimitW: number;
+  memoryUsedMiB: number;
+  memoryTotalMiB: number;
+  utilization: number;
 }

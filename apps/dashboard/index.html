@@ -15,6 +15,10 @@
         --warn: #f59e0b;
         --bad: #ef4444;
       }
+      @media (max-width: 600px) {
+        .grid { grid-template-columns: 1fr; }
+        .wrap { padding: 10px; }
+      }
       * { box-sizing: border-box; }
       body { margin: 0; font-family: Inter, Arial, sans-serif; background: var(--bg); color: var(--text); }
       .wrap { max-width: 1280px; margin: 0 auto; padding: 20px; }
@@ -38,6 +42,7 @@
       select, input[type='number'], input[type='range'] { background: #0f172a; color: #e5edf8; border: 1px solid var(--border); border-radius: 6px; padding: 6px; }
       .section-title { margin-top: 18px; margin-bottom: 8px; font-weight: 700; }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   </head>
   <body>
     <div class="wrap">
@@ -45,6 +50,13 @@
       <div class="muted">저전력 ↔ 고성능 자동 전환 / Gateway / GPU / AK620 / Logs 통합</div>
 
       <div class="grid">
+        <div class="card" style="grid-column: 1 / -1;">
+          <h3>GPU Metrics & Power History</h3>
+          <div class="grid" style="grid-template-columns: 2fr 1fr;">
+            <canvas id="gpuChart" style="max-height: 200px;"></canvas>
+            <div id="powerHistory" class="kv" style="max-height: 200px; overflow-y: auto;"></div>
+          </div>
+        </div>
         <div class="card">
           <h3>Overview</h3>
           <div id="overview" class="kv"></div>
@@ -261,8 +273,20 @@
           renderGateway(status);
           renderGpu(status);
           renderAk620(status);
+          renderAlerts(status);
         } catch (error) {
           console.error(error);
+        }
+      }
+
+      function renderAlerts(status) {
+        const alertCard = document.getElementById("alertCard");
+        const alertList = document.getElementById("alertList");
+        if (status.alerts && status.alerts.length > 0) {
+          alertCard.style.display = "block";
+          alertList.innerHTML = status.alerts.map(a => `<li>${a}</li>`).join("");
+        } else {
+          alertCard.style.display = "none";
         }
       }
 
@@ -342,10 +366,56 @@
       akRange.addEventListener("input", () => { akValue.value = akRange.value; });
       akValue.addEventListener("input", () => { akRange.value = akValue.value; });
 
+      const gpuCtx = document.getElementById("gpuChart").getContext("2d");
+      const gpuChart = new Chart(gpuCtx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            { label: "GPU0 Power (W)", data: [], borderColor: "#0ea5e9", tension: 0.1 },
+            { label: "GPU0 Temp (°C)", data: [], borderColor: "#f59e0b", tension: 0.1 },
+          ],
+        },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } },
+      });
+
+      async function updateGpuChart() {
+        try {
+          const { metrics } = await api("/api/gpu-metrics");
+          // Assuming metrics is an array of objects
+          const gpu0Metrics = metrics.filter(m => m.index === 0);
+          gpuChart.data.labels = gpu0Metrics.map((_, i) => i);
+          gpuChart.data.datasets[0].data = gpu0Metrics.map(m => m.powerW);
+          gpuChart.data.datasets[1].data = gpu0Metrics.map(m => m.temperatureC);
+          gpuChart.update();
+        } catch (e) {
+          console.error("Failed to load gpu metrics", e);
+        }
+      }
+
+      // ... existing code
+      async function updatePowerHistory() {
+        try {
+          const { history } = await api("/api/power-history");
+          const root = document.getElementById("powerHistory");
+          root.innerHTML = history.reverse().map(h => `
+            <div class='muted'>${fmtTs(h.timestamp)}</div>
+            <div>${h.mode}</div>
+          `).join("");
+        } catch (e) {
+          console.error("Failed to load power history", e);
+        }
+      }
+
+      // ... existing code
       refreshStatus();
       loadLogs();
+      updateGpuChart();
+      updatePowerHistory();
       setInterval(refreshStatus, 5000);
       setInterval(loadLogs, 10000);
+      setInterval(updateGpuChart, 10000);
+      setInterval(updatePowerHistory, 10000);
     </script>
   </body>
 </html>

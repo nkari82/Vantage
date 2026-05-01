@@ -11,6 +11,22 @@ import {
   stopVllmService,
 } from "./power-controller.js";
 import { getGpuStatus } from "./system-monitor.js";
+import { appendMetric } from "./storage.js";
+
+let powerHistory: { mode: PowerMode; timestamp: number }[] = [];
+const MAX_HISTORY = 50;
+
+function addPowerHistory(mode: PowerMode) {
+  powerHistory.push({ mode, timestamp: Date.now() });
+  if (powerHistory.length > MAX_HISTORY) {
+    powerHistory.shift();
+  }
+}
+  const gpus = await getGpuStatus();
+  gpus.forEach((gpu) => {
+    appendMetric("gpu-metrics.jsonl", gpu);
+  });
+}, 10_000);
 
 const app = express();
 app.use(express.json());
@@ -41,6 +57,20 @@ function saveConfig(mutator: (draft: AppConfig) => void): AppConfig {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(parsed, null, 2), "utf8");
   config = loadConfig();
   return config;
+}
+
+function checkAlerts(gpus: GpuStatus[]): string[] {
+  const alerts: string[] = [];
+  for (const gpu of gpus) {
+    if (gpu.temperatureC >= config.alerts.gpuTempThresholdC) {
+      alerts.push(`GPU ${gpu.index} High Temp: ${gpu.temperatureC}°C`);
+    }
+    const memUsage = (gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100;
+    if (memUsage >= config.alerts.memoryUsageThresholdPercent) {
+      alerts.push(`GPU ${gpu.index} High Mem: ${memUsage.toFixed(1)}%`);
+    }
+  }
+  return alerts;
 }
 
 function makeAk620View(gpuTemp: number): Ak620StatusView {
@@ -89,8 +119,27 @@ setInterval(() => {
   void ensureAdaptiveState();
 }, 15_000);
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "vantage-backend" });
+app.get("/api/config", (_req, res) => {
+  res.json(config);
+});
+
+app.post("/api/config", (req, res) => {
+  const newConfig = req.body as Partial<AppConfig>;
+  // 기본적인 구조 확인 (전체 설정을 덮어쓰는 대신 일부 병합 방식 고려)
+  // 여기서는 단순히 전체 설정 구조를 받아와서 업데이트하는 방식을 사용
+  
+  saveConfig((draft) => {
+    // 깊은 병합(deep merge)이 필요할 수 있으나, 우선 간단하게 특정 필드만 업데이트
+    if (newConfig.llmGateway) {
+      draft.llmGateway = { ...draft.llmGateway, ...newConfig.llmGateway };
+    }
+    if (newConfig.ak620) {
+      draft.ak620 = { ...draft.ak620, ...newConfig.ak620 };
+    }
+    // 기타 필드 추가 가능
+  });
+
+  res.json({ ok: true, config });
 });
 
 app.get("/api/status", async (_req, res) => {
@@ -112,6 +161,7 @@ app.get("/api/status", async (_req, res) => {
       idleRemainingSeconds: getIdleRemainingSeconds(),
     },
     ak620: makeAk620View(gpu0?.temperatureC ?? 0),
+    alerts: checkAlerts(gpus),
   };
   res.json(status);
 });
@@ -139,6 +189,7 @@ app.post("/api/mode", async (req, res) => {
     }
 
     currentMode = mode;
+    addPowerHistory(currentMode);
     res.json({ ok: true, mode: currentMode });
   } catch (error) {
     res.status(500).json({
@@ -275,7 +326,18 @@ app.post("/api/system/shutdown", async (_req, res) => {
   }
 });
 
-const port = Number(process.env.VANTAGE_BACKEND_PORT ?? 18080);
+app.get("/api/power-history", async (req, res) => {
+  res.json({ history: powerHistory, total: powerHistory.length });
+});
+
+import { readMetrics } from "./storage.js";
+
+// ...
+app.get("/api/gpu-metrics", async (req, res) => {
+  const metrics = readMetrics("gpu-metrics.jsonl", 100);
+  res.json({ metrics, total: metrics.length });
+});
+
 app.listen(port, () => {
   // eslint-disable-next-line no-console
   console.log(`[vantage-backend] listening on ${port}`);

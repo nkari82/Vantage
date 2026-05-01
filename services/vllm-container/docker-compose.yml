@@ -1,0 +1,41 @@
+version: '3.8'
+services:
+  vllm:
+    build: .
+    image: vllm-coder:latest
+    container_name: vllm-coder-service
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    ports:
+      - "8000:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0,1
+      - VLLM_USE_FLASHINFER_SAMPLER=1
+      - VLLM_ENABLE_CUDAGRAPH_GC=1
+    shm_size: '10gb'
+    command: >
+      vllm serve Lorbus/Qwen3.6-27B-int4-AutoRound
+      --served-model-name qwen3.6-27b-local
+      --quantization auto_round
+      --tensor-parallel-size 2
+      --max-model-len 65536
+      --max-num-seqs 4
+      --max-num-batched-tokens 8192
+      --gpu-memory-utilization 0.88
+      --kv-cache-dtype fp8
+      --enable-prefix-caching
+      --enable-chunked-prefill
+      --attention-backend flashinfer
+      --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
+      --enable-auto-tool-choice
+      --tool-call-parser qwen3_coder
+      --reasoning-parser qwen3
+      --port 8000
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface

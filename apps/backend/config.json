@@ -42,5 +42,9 @@
       "cpuGovernor": "performance",
       "description": "최대 성능 모드"
     }
+  },
+  "alerts": {
+    "gpuTempThresholdC": 85,
+    "memoryUsageThresholdPercent": 90
   }
 }

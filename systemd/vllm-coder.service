@@ -12,8 +12,10 @@ ExecStart=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-start.sh
 ExecStop=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-stop.sh
 Restart=on-failure
 RestartSec=20
-TimeoutStartSec=300
-TimeoutStopSec=60
+# ... (previous content)
+TimeoutStartSec=600
+TimeoutStopSec=120
+# ...
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vllm-coder
