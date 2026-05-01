@@ -11,6 +11,7 @@ import {
   stopVllmService,
 } from "./power-controller.js";
 import { getGpuStatus, getSystemMetrics, withEstimatedSystemPower } from "./system-monitor.js";
+import { PowerTracker } from "./power-tracker.js";
 import { appendMetric } from "./storage.js";
 import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
@@ -20,6 +21,7 @@ import { isAdminRoute, requireAdminToken } from "./security.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? path.resolve(__dirname, "../../dashboard/dist");
 const dashboardIndexPath = path.join(dashboardDistDir, "index.html");
+const powerTracker = new PowerTracker(path.resolve(__dirname, "../data"));
 
 let powerHistory: { mode: PowerMode; timestamp: number }[] = [];
 const MAX_HISTORY = 50;
@@ -40,6 +42,10 @@ setInterval(async () => {
 
   const system = withEstimatedSystemPower(gpus, await getSystemMetrics());
   appendMetric("system-metrics.jsonl", system);
+  
+  if (system.estimatedSystemPowerW !== null) {
+    powerTracker.addEnergy(system.estimatedSystemPowerW, 10_000);
+  }
 }, 10_000);
 
 const app = express();
@@ -109,6 +115,7 @@ app.use("/api", createSystemRouter({
   getConfig: () => config,
   makeAk620View: makeAk620View,
   saveConfig: saveConfig,
+  powerTracker: powerTracker,
 }));
 
 // Remaining API routes

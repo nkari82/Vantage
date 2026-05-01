@@ -3,13 +3,21 @@ import { runCommand } from "../shell.js";
 import { getGpuStatus, MONITORED_SERVICES } from "../system-monitor.js";
 import { readMetrics } from "../storage.js";
 import type { Ak620StatusView, AppConfig } from "../types.js";
+import { PowerTracker } from "../power-tracker.js";
 
 export function createSystemRouter(deps: {
   getConfig: () => AppConfig;
   makeAk620View: (gpuTemp: number) => Ak620StatusView;
   saveConfig: (mutator: (draft: AppConfig) => void) => void;
+  powerTracker: PowerTracker;
 }): Router {
   const router = express.Router();
+
+  router.get("/system/power-stats", (_req, res) => {
+    const stats = deps.powerTracker.getStats();
+    const cost = stats.totalKwh * deps.getConfig().powerTracking.powerCostPerKwh;
+    res.json({ ...stats, cost });
+  });
 
   router.get("/ak620/status", async (_req, res) => {
     const gpus = await getGpuStatus();

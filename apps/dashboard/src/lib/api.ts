@@ -1,4 +1,4 @@
-import type { ApiOk, HistoryEnvelope, LogEnvelope, MetricEnvelope, PowerMode, SystemMetrics, SystemStatus, GpuStatus } from "../types/vantage";
+import type { ApiOk, HistoryEnvelope, LogEnvelope, MetricEnvelope, PowerMode, SystemMetrics, SystemStatus, GpuStatus, PowerStats } from "../types/vantage";
 
 const backendBase = "";
 const adminTokenKey = "vantage.adminToken";
@@ -69,4 +69,5 @@ export const api = {
   gpuMetrics: () => request<MetricEnvelope<GpuStatus & { timestamp: number }>>("/api/gpu-metrics"),
   systemMetrics: () => request<MetricEnvelope<SystemMetrics & { timestamp: number }>>("/api/system-metrics"),
   powerHistory: () => request<HistoryEnvelope>("/api/power-history"),
+  powerStats: () => request<PowerStats>("/api/system/power-stats"),
 };

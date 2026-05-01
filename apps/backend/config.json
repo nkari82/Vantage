@@ -46,5 +46,9 @@
   "alerts": {
     "gpuTempThresholdC": 85,
     "memoryUsageThresholdPercent": 90
+  },
+  "powerTracking": {
+    "basePowerEstimateW": 55,
+    "powerCostPerKwh": 200
   }
 }

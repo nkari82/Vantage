@@ -56,6 +56,13 @@ export interface SystemStatus {
   alerts: string[];
 }
 
+export interface PowerStats {
+  month: number;
+  year: number;
+  totalKwh: number;
+  cost: number;
+}
+
 export interface PowerHistoryEntry {
   mode: PowerMode;
   timestamp: number;

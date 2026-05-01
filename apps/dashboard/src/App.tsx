@@ -3,7 +3,7 @@ import { api } from "./lib/api";
 import { clampPercent, fmtNumber, fmtTs } from "./lib/format";
 import { MetricBar } from "./components/MetricBar";
 import { MiniChart } from "./components/MiniChart";
-import type { GpuStatus, PowerMode, SystemMetrics, SystemStatus } from "./types/vantage";
+import type { GpuStatus, PowerMode, SystemMetrics, SystemStatus, PowerStats } from "./types/vantage";
 import "./styles.css";
 
 const modeList: PowerMode[] = ["LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"];
@@ -30,6 +30,7 @@ export default function App() {
   const [gpuMetrics, setGpuMetrics] = useState<Array<GpuStatus & { timestamp: number }>>([]);
   const [systemMetrics, setSystemMetrics] = useState<Array<SystemMetrics & { timestamp: number }>>([]);
   const [powerHistory, setPowerHistory] = useState<Array<{ mode: PowerMode; timestamp: number }>>([]);
+  const [powerStats, setPowerStats] = useState<PowerStats | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [logService, setLogService] = useState(services[0]);
   const [logLines, setLogLines] = useState(80);
@@ -45,14 +46,16 @@ export default function App() {
   }
 
   async function refreshTelemetry() {
-    const [gpu, system, history] = await Promise.all([
+    const [gpu, system, history, stats] = await Promise.all([
       api.gpuMetrics(),
       api.systemMetrics(),
       api.powerHistory(),
+      api.powerStats(),
     ]);
     setGpuMetrics(gpu.metrics);
     setSystemMetrics(system.metrics);
     setPowerHistory([...history.history].reverse());
+    setPowerStats(stats);
   }
 
   async function loadLogs() {
@@ -143,6 +146,11 @@ export default function App() {
       )}
 
       <section className="summary-grid">
+        <div className="stat-card glass-card">
+          <span>Estimated Cost</span>
+          <strong>{fmtNumber(powerStats?.cost ?? 0, 0)} 원</strong>
+          <small>{fmtNumber(powerStats?.totalKwh ?? 0, 1)} kWh 이달 누적</small>
+        </div>
         <div className="stat-card glass-card">
           <span>Estimated System Power</span>
           <strong>{fmtNumber(estimatedSystemPower, 1)} W</strong>
