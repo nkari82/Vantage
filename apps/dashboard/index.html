@@ -184,12 +184,19 @@
 
       function renderSystem(status) {
         const sys = status.system;
+        const tempEntries = Object.entries(sys.temperatures);
         const html = [
           ["CPU Usage", `${sys.cpuUsagePercent}%`],
           ["CPU Clock", `${sys.cpuClockMhz} MHz`],
           ["RAM Usage", `${sys.memoryUsedGb} / ${sys.memoryTotalGb} GB`],
+          ...tempEntries.map(([k, v]) => [k.replace(/_/g, " "), `${v}°C`]),
         ].map(([k, v]) => `<div class='muted'>${k}</div><div>${v}</div>`).join("");
-        document.getElementById("systemMetrics").innerHTML = html;
+        
+        const coresHtml = `<div class='muted'>Cores Usage</div><div class='row' style='gap:4px'>` + 
+          sys.cpuCoresUsagePercent.map(u => `<div class='bar' style='width:20px'><div style='height:${u}%'></div></div>`).join("") + 
+          `</div>`;
+        
+        document.getElementById("systemMetrics").innerHTML = html + coresHtml;
       }
 
       function renderGateway(status) {

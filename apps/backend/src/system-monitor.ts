@@ -2,12 +2,26 @@ import type { GpuStatus, SystemMetrics } from "./types.js";
 
 export async function getSystemMetrics(): Promise<SystemMetrics> {
   try {
-    // CPU Usage (Average over all cores)
-    const { stdout: mpstat } = await runCommand("mpstat", ["1", "1"]);
+    // CPU Usage (Average and Cores)
+    const { stdout: mpstat } = await runCommand("mpstat", ["-P", "ALL", "1", "1"]);
     const lines = mpstat.split("\n");
-    const avgLine = lines.find((l) => l.includes("all"));
-    const idleMatch = avgLine ? avgLine.match(/\s+(\d+\.\d+)$/) : null;
-    const cpuUsage = idleMatch ? 100 - parseFloat(idleMatch[1]) : 0;
+    
+    let avgUsage = 0;
+    const coresUsage: number[] = [];
+
+    for (const line of lines) {
+      if (line.includes("all")) {
+        const parts = line.trim().split(/\s+/);
+        const idle = parseFloat(parts[parts.length - 1]);
+        avgUsage = 100 - idle;
+      } else if (line.match(/^\d{2}:\d{2}:\d{2}/) && !line.includes("CPU")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts[1] !== "all") {
+          const idle = parseFloat(parts[parts.length - 1]);
+          coresUsage.push(Math.round(100 - idle));
+        }
+      }
+    }
 
     // CPU Clock
     const { stdout: cpuInfo } = await runCommand("grep", ["cpu MHz", "/proc/cpuinfo"]);
@@ -20,15 +34,28 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
     const totalMemGb = memMatch ? parseFloat(memMatch[1]) / 1024 : 0;
     const usedMemGb = memMatch ? parseFloat(memMatch[2]) / 1024 : 0;
 
+    // Temperatures
+    const { stdout: sensors } = await runCommand("sensors", ["-A"]);
+    const temperatures: Record<string, number> = {};
+    const lines = sensors.split("\n");
+    for (const line of lines) {
+      const match = line.match(/^(.+?):\s+\+(\d+\.\d+)°C/);
+      if (match) {
+        temperatures[match[1].trim().replace(/\s+/g, "_")] = parseFloat(match[2]);
+      }
+    }
+
     return {
-      cpuUsagePercent: Math.round(cpuUsage),
+      cpuUsagePercent: Math.round(avgUsage),
+      cpuCoresUsagePercent: coresUsage,
       cpuClockMhz: Math.round(cpuClock),
       memoryUsedGb: parseFloat(usedMemGb.toFixed(1)),
       memoryTotalGb: parseFloat(totalMemGb.toFixed(1)),
+      temperatures,
     };
   } catch (e) {
     console.error("Failed to get system metrics", e);
-    return { cpuUsagePercent: 0, cpuClockMhz: 0, memoryUsedGb: 0, memoryTotalGb: 0 };
+    return { cpuUsagePercent: 0, cpuCoresUsagePercent: [], cpuClockMhz: 0, memoryUsedGb: 0, memoryTotalGb: 0, temperatures: {} };
   }
 }
 import { runCommand } from "./shell.js";

@@ -1,8 +1,10 @@
 export interface SystemMetrics {
   cpuUsagePercent: number;
+  cpuCoresUsagePercent: number[];
   cpuClockMhz: number;
   memoryUsedGb: number;
   memoryTotalGb: number;
+  temperatures: Record<string, number>;
 }
 export type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
 
