@@ -32,6 +32,9 @@ setInterval(async () => {
   gpus.forEach((gpu) => {
     appendMetric("gpu-metrics.jsonl", gpu);
   });
+  
+  const system = await getSystemMetrics();
+  appendMetric("system-metrics.jsonl", system);
 }, 10_000);
 
 const app = express();

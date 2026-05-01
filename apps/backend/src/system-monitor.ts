@@ -45,6 +45,24 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
       }
     }
 
+    // 서비스 헬스 상태 확인
+    const services = [
+      "vantage-backend",
+      "vantage-llm-gateway",
+      "vllm-coder",
+      "vantage-ak620-agent",
+      "vantage-dashboard",
+    ];
+    const serviceStatus: Record<string, string> = {};
+    for (const service of services) {
+      try {
+        const { stdout } = await runCommand("/bin/systemctl", ["is-active", service]);
+        serviceStatus[service] = stdout.trim();
+      } catch {
+        serviceStatus[service] = "inactive";
+      }
+    }
+
     return {
       cpuUsagePercent: Math.round(avgUsage),
       cpuCoresUsagePercent: coresUsage,
@@ -52,6 +70,7 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
       memoryUsedGb: parseFloat(usedMemGb.toFixed(1)),
       memoryTotalGb: parseFloat(totalMemGb.toFixed(1)),
       temperatures,
+      serviceStatus,
     };
   } catch (e) {
     console.error("Failed to get system metrics", e);

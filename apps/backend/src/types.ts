@@ -5,6 +5,7 @@ export interface SystemMetrics {
   memoryUsedGb: number;
   memoryTotalGb: number;
   temperatures: Record<string, number>;
+  serviceStatus: Record<string, string>;
 }
 export type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
 

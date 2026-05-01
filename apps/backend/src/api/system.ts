@@ -1,3 +1,7 @@
+  router.get("/system-metrics", async (_req, res) => {
+    const metrics = readMetrics("system-metrics.jsonl", 100);
+    res.json({ metrics, total: metrics.length });
+  });
 import express, { Router } from "express";
 import { runCommand } from "../shell.js";
 import { getGpuStatus } from "../system-monitor.js";
