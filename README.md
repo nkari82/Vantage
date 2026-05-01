@@ -6,7 +6,7 @@
 서버에 접속한 후 기본 패키지를 업데이트합니다.
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl git vim htop net-tools
+sudo apt install -y curl git vim htop net-tools nodejs npm
 ```
 
 ## 2. Docker 및 Docker Compose 설치
@@ -39,27 +39,23 @@ cd Vantage
 # config.json 등 필수 환경 설정 확인
 ```
 
-## 5. vLLM (Qwen3.6) 서비스 구축
-`docker-compose.yml`을 사용하여 vLLM 컨테이너를 실행합니다.
+## 5. 전체 자동 설치 (권장)
+Vantage 프로젝트와 모든 서비스(vLLM 포함), systemd 설정을 한 번에 자동 설치합니다.
 ```bash
-# vLLM 컨테이너 실행
-docker compose up -d vllm-coder
+sudo ./install-vantage.sh
 ```
 
-## 6. 서비스 설치 (Systemd)
-Vantage 백엔드와 에이전트를 시스템 서비스로 등록합니다.
+## 7. 프로젝트 삭제 (Uninstall)
+Vantage 프로젝트와 관련된 모든 서비스, 설정, 사용자 데이터를 제거합니다.
 ```bash
-# 서비스 파일 심볼릭 링크 및 시작
-sudo cp systemd/*.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now vantage-backend.service
-sudo systemctl enable --now vantage-ak620-agent.service
-sudo systemctl enable --now vantage-llm-gateway.service
+sudo ./uninstall-vantage.sh
 ```
 
-## 7. 검증
+## 8. 검증
 ```bash
 # 서비스 상태 확인
 systemctl status vantage-backend
-# 대시보드 접속: http://<서버IP>:18080
 ```
+- 대시보드 접속: `http://<서버IP>:18080`
+- LLM 엔드포인트: `http://<서버IP>:8080`
+
