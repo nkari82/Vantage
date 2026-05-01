@@ -58,7 +58,28 @@ sudo ./uninstall-vantage.sh
 ```bash
 # 서비스 상태 확인
 systemctl status vantage-backend
+systemctl status vantage-llm-gateway
 ```
-- 대시보드 접속: `http://<서버IP>:18080`
+- 통합 대시보드 및 Backend API: `http://<서버IP>:18080`
 - LLM 엔드포인트: `http://<서버IP>:8080`
+
+`install-vantage.sh`는 `apps/dashboard`의 Node 프로젝트를 감지해 의존성 설치와 React/TypeScript 빌드를 자동으로 수행합니다. 빌드 결과물은 `apps/dashboard/dist`에 생성되며, `vantage-backend.service`가 같은 포트(18080)에서 정적 대시보드와 `/api/*`를 함께 제공합니다. 별도 `vantage-dashboard.service`는 더 이상 기본 기동 대상이 아닙니다.
+
+## 9. Admin Token / 보안 운영
+전원 모드 변경, vLLM 시작/중지, 로그 조회, 시스템 재부팅/종료 같은 운영 API는 `VANTAGE_ADMIN_TOKEN` Bearer token이 필요합니다. 설치 스크립트가 `/etc/vantage/backend.env`에 token을 자동 생성하고 `vantage-backend.service`가 이 파일을 `EnvironmentFile`로 읽습니다.
+
+```bash
+sudo cat /etc/vantage/backend.env
+# VANTAGE_ADMIN_TOKEN=<token>
+```
+
+대시보드의 **Admin Access** 카드에 token 값을 저장하면 브라우저가 보호된 API 호출에 `Authorization: Bearer <token>` 헤더를 함께 전송합니다. `vantage-llm-gateway.service`도 같은 env 파일을 읽어 자동 vLLM start/touch 호출에 token을 전달합니다. token을 교체한 경우 backend와 gateway를 재시작하세요.
+
+```bash
+sudo systemctl restart vantage-backend
+sudo systemctl restart vantage-llm-gateway
+```
+
+## 10. 전력 표시 참고
+대시보드의 **Estimated System Power**는 GPU 실측 전력(`nvidia-smi`) + CPU package 전력(RAPL `/sys/class/powercap`) + 기본 시스템 전력 추정치(`VANTAGE_BASE_SYSTEM_POWER_W`, 기본 55W)를 합산한 값입니다. CPU RAPL을 제공하지 않는 시스템에서는 GPU 전력과 기본 추정치만으로 표시됩니다.
 

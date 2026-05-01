@@ -12,6 +12,8 @@ Environment=NODE_ENV=production
 Environment=VANTAGE_BACKEND_PORT=18080
 Environment=VANTAGE_CONFIG_PATH=/opt/vantage/apps/backend/config.json
 Environment=VANTAGE_SCRIPTS_DIR=/opt/vantage/scripts
+Environment=VANTAGE_DASHBOARD_DIST=/opt/vantage/apps/dashboard/dist
+EnvironmentFile=-/etc/vantage/backend.env
 ExecStart=/usr/bin/node /opt/vantage/apps/backend/dist/server.js
 Restart=always
 RestartSec=5

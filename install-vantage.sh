@@ -27,12 +27,13 @@ EOF
 PROJECT_SRC=""
 TARGET_DIR="/opt/vantage"
 SERVICE_USER="vantage"
+ADMIN_ENV_DIR="/etc/vantage"
+ADMIN_ENV_FILE="/etc/vantage/backend.env"
 DRY_RUN=false
 SKIP_BUILD=false
 
 SERVICES=(
   "vantage-backend.service"
-  "vantage-dashboard.service"
   "vantage-ak620-agent.service"
   "vllm-coder.service"
   "vantage-llm-gateway.service"
@@ -199,7 +200,7 @@ run_as_root chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET_DIR}"
 echo "[3/11] Build backend (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/apps/backend" "backend"
 
-echo "[4/11] Build dashboard (npm auto if package.json exists)"
+echo "[4/11] Build dashboard for backend static serving (npm auto if package.json exists)"
 build_node_project_if_present "${TARGET_DIR}/apps/dashboard" "dashboard"
 
 echo "[5/11] Build AK620 agent (npm auto)"
@@ -222,6 +223,17 @@ vantage ALL=(root) NOPASSWD: /bin/systemctl halt
 EOF
 run_as_root chmod 0440 /etc/sudoers.d/vantage-system
 
+# Admin token for privileged backend API calls.
+run_as_root mkdir -p "$ADMIN_ENV_DIR"
+if [[ "$DRY_RUN" == "true" ]]; then
+  echo "[DRY-RUN] create $ADMIN_ENV_FILE with VANTAGE_ADMIN_TOKEN if missing"
+elif [[ ! -f "$ADMIN_ENV_FILE" ]] || ! grep -q '^VANTAGE_ADMIN_TOKEN=' "$ADMIN_ENV_FILE"; then
+  ADMIN_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+  printf 'VANTAGE_ADMIN_TOKEN=%s\n' "$ADMIN_TOKEN" | "${AS_ROOT[@]}" tee "$ADMIN_ENV_FILE" >/dev/null
+fi
+run_as_root chown "root:${SERVICE_USER}" "$ADMIN_ENV_FILE"
+run_as_root chmod 0640 "$ADMIN_ENV_FILE"
+
 echo "[10/12] Ensure executable scripts"
 run_as_root chmod +x "${TARGET_DIR}/scripts/"*.sh
 
@@ -237,3 +249,4 @@ for svc in "${SERVICES[@]}"; do
 done
 
 echo "Installation complete. Reboot-safe always-on services are enabled."
+echo "Admin token file: ${ADMIN_ENV_FILE}"
