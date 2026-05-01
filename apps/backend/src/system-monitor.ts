@@ -49,31 +49,27 @@ function readCpuPackageEnergyMicroJoules(): number | null {
   return total > 0 ? total : null;
 }
 
-function sampleCpuPowerW(): number | null {
-  try {
-    const energyMicroJoules = readCpuPackageEnergyMicroJoules();
-    const timestampMs = Date.now();
-    if (energyMicroJoules === null) {
-      lastRaplSample = null;
-      return null;
-    }
-
+function sampleCpuPowerW(cpuUsagePercent: number | null): number {
+  const raplEnergy = readCpuPackageEnergyMicroJoules();
+  const timestampMs = Date.now();
+  
+  if (raplEnergy !== null) {
     const previous = lastRaplSample;
-    lastRaplSample = { energyMicroJoules, timestampMs };
-    if (!previous || energyMicroJoules < previous.energyMicroJoules) {
-      return null;
+    lastRaplSample = { energyMicroJoules: raplEnergy, timestampMs };
+    if (previous && raplEnergy >= previous.energyMicroJoules) {
+        const elapsedSeconds = (timestampMs - previous.timestampMs) / 1000;
+        if (elapsedSeconds > 0) {
+            const joules = (raplEnergy - previous.energyMicroJoules) / 1_000_000;
+            return Number.parseFloat((joules / elapsedSeconds).toFixed(1));
+        }
     }
-
-    const elapsedSeconds = (timestampMs - previous.timestampMs) / 1000;
-    if (elapsedSeconds <= 0) {
-      return null;
-    }
-
-    const joules = (energyMicroJoules - previous.energyMicroJoules) / 1_000_000;
-    return Number.parseFloat((joules / elapsedSeconds).toFixed(1));
-  } catch {
-    return null;
+    return 0; // RAPL exists but not ready/valid yet
   }
+
+    // AMD Ryzen 5700X: Idle ~25W, Full Load ~95W.
+  // 추정 공식: 25W (Idle) + (70W * usage%)
+  const usage = (cpuUsagePercent ?? 0) / 100;
+  return Number.parseFloat((25 + (70 * usage)).toFixed(1));
 }
 
 export function withEstimatedSystemPower(gpus: GpuStatus[], system: SystemMetrics): SystemMetrics {
@@ -86,7 +82,8 @@ export function withEstimatedSystemPower(gpus: GpuStatus[], system: SystemMetric
 
 export async function getSystemMetrics(): Promise<SystemMetrics> {
   const basePowerEstimateW = getBasePowerEstimateW();
-  const cpuPowerW = sampleCpuPowerW();
+  let cpuPowerW: number | null = null;
+  let cpuUsagePercent = 0;
 
   try {
     const { stdout: mpstat } = await runCommand("mpstat", ["-P", "ALL", "1", "1"]);
@@ -108,6 +105,9 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
         }
       }
     }
+    
+    cpuUsagePercent = avgUsage;
+    cpuPowerW = sampleCpuPowerW(avgUsage);
 
     const { stdout: cpuInfo } = await runCommand("grep", ["cpu MHz", "/proc/cpuinfo"]);
     const clockMatch = cpuInfo.match(/cpu MHz\s+:\s+(\d+\.\d+)/);
@@ -152,6 +152,8 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
     };
   } catch (error) {
     console.error("Failed to get system metrics", error);
+    // Use fallback based on 0 usage if metrics failed
+    cpuPowerW = sampleCpuPowerW(0);
     return {
       cpuUsagePercent: 0,
       cpuCoresUsagePercent: [],
@@ -160,7 +162,7 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
       memoryTotalGb: 0,
       cpuPowerW,
       basePowerEstimateW,
-      estimatedSystemPowerW: cpuPowerW === null ? basePowerEstimateW : Number.parseFloat((cpuPowerW + basePowerEstimateW).toFixed(1)),
+      estimatedSystemPowerW: Number.parseFloat((cpuPowerW + basePowerEstimateW).toFixed(1)),
       temperatures: {},
       serviceStatus: Object.fromEntries(MONITORED_SERVICES.map((service) => [service, "unknown"])),
       degraded: true,

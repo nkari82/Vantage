@@ -5,6 +5,17 @@
 ## 프로젝트 개요
 Vantage는 듀얼 RTX 3090 기반 로컬 AI 서버를 위한 시스템 운용 플랫폼입니다. 시스템 상태 모니터링, GPU 전력 모드 제어, LLM Gateway 자동 관리(vLLM 기동/종료), 그리고 AK620 Digital 디스플레이 연동을 통합 웹 대시보드에서 관리합니다. 듀얼 RTX 3090 서버를 저전력 홈서버와 고성능 LLM 서버 사이에서 자동 전환하며 전력을 최적화합니다.
 
+## 시스템 스펙 (서버)
+- **CPU**: AMD Ryzen 7 5700X
+- **GPU**: Dell OEM RTX 3090 ×2
+- **메인보드**: ASUS TUF Gaming X570-PRO (Wi-Fi)
+- **RAM**: Corsair Vengeance LPX DDR4 64GB
+- **SSD**: Samsung 980 NVMe 1TB
+- **PSU**: FSP Hydro PTM PRO 1200W
+- **쿨러**: DeepCool AK620 Digital
+- **케이스**: Lian Li O11 Air Mini
+- **팬**: 하단 ARCTIC P12 Slim ×2, 상단 Arctic P12 PWM PST ×2
+
 ## 1. 서버 환경 준비 (Ubuntu Server)
 서버에 접속한 후 기본 패키지를 업데이트합니다.
 ```bash

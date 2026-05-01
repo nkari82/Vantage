@@ -48,7 +48,7 @@
     "memoryUsageThresholdPercent": 90
   },
   "powerTracking": {
-    "basePowerEstimateW": 55,
+    "basePowerEstimateW": 60,
     "powerCostPerKwh": 200
   }
 }
