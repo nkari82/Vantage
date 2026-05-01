@@ -1,3 +1,9 @@
+export interface SystemMetrics {
+  cpuUsagePercent: number;
+  cpuClockMhz: number;
+  memoryUsedGb: number;
+  memoryTotalGb: number;
+}
 export type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
 
 export interface Ak620Config {
@@ -79,6 +85,7 @@ export interface SystemStatus {
   llmReady: boolean;
   lastUsedAt: number | null;
   gpus: GpuStatus[];
+  system: SystemMetrics;
   gateway: GatewayStatusView;
   ak620: Ak620StatusView;
   alerts: string[];

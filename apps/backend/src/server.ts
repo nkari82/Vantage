@@ -10,7 +10,7 @@ import {
   startVllmService,
   stopVllmService,
 } from "./power-controller.js";
-import { getGpuStatus } from "./system-monitor.js";
+import { getGpuStatus, getSystemMetrics } from "./system-monitor.js";
 import { appendMetric } from "./storage.js";
 import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
@@ -120,6 +120,7 @@ app.get("/api/status", async (_req, res) => {
     llmReady: await isVllmActive(),
     lastUsedAt,
     gpus,
+    system: await getSystemMetrics(),
     gateway: {
       enabled: llmGatewayEnabled,
       upstreamUrl: config.llmGateway.upstreamUrl,

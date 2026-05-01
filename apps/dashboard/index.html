@@ -1,3 +1,16 @@
+      function renderOverview(status) {
+        const totalPower = (status.gpus || []).reduce((acc, g) => acc + (g.powerW || 0), 0);
+        const maxTemp = Math.max(0, ...(status.gpus || []).map((g) => g.temperatureC || 0));
+        const html = [
+          ["Current Mode", status.mode],
+          ["Total GPU Power", `${totalPower.toFixed(1)} W`],
+          ["LLM Ready", status.llmReady ? "Running" : "Stopped"],
+          ["Gateway Enabled", String(status.gateway.enabled)],
+          ["Max GPU Temp", `${maxTemp} °C`],
+          ["Last Request", fmtTs(status.gateway.lastUsedAt)],
+        ].map(([k, v]) => `<div class='muted'>${k}</div><div>${v}</div>`).join("");
+        document.getElementById("overview").innerHTML = html;
+      }
 <!doctype html>
 <html lang="ko">
   <head>
@@ -60,6 +73,11 @@
         <div class="card">
           <h3>Overview</h3>
           <div id="overview" class="kv"></div>
+        </div>
+
+        <div class="card">
+          <h3>System Metrics</h3>
+          <div id="systemMetrics" class="kv"></div>
         </div>
 
         <div class="card">
@@ -164,18 +182,14 @@
         });
       }
 
-      function renderOverview(status) {
-        const totalPower = (status.gpus || []).reduce((acc, g) => acc + (g.powerW || 0), 0);
-        const maxTemp = Math.max(0, ...(status.gpus || []).map((g) => g.temperatureC || 0));
+      function renderSystem(status) {
+        const sys = status.system;
         const html = [
-          ["Current Mode", status.mode],
-          ["Total GPU Power", `${totalPower.toFixed(1)} W`],
-          ["LLM Ready", status.llmReady ? "Running" : "Stopped"],
-          ["Gateway Enabled", String(status.gateway.enabled)],
-          ["Max GPU Temp", `${maxTemp} °C`],
-          ["Last Request", fmtTs(status.gateway.lastUsedAt)],
+          ["CPU Usage", `${sys.cpuUsagePercent}%`],
+          ["CPU Clock", `${sys.cpuClockMhz} MHz`],
+          ["RAM Usage", `${sys.memoryUsedGb} / ${sys.memoryTotalGb} GB`],
         ].map(([k, v]) => `<div class='muted'>${k}</div><div>${v}</div>`).join("");
-        document.getElementById("overview").innerHTML = html;
+        document.getElementById("systemMetrics").innerHTML = html;
       }
 
       function renderGateway(status) {
@@ -270,6 +284,7 @@
           latestStatus = status;
           setModeButtons(status.mode);
           renderOverview(status);
+          renderSystem(status);
           renderGateway(status);
           renderGpu(status);
           renderAk620(status);
