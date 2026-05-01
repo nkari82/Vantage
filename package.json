@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/backend",
-    "apps/dashboard"
+    "app/backend",
+    "app/dashboard"
   ],
   "scripts": {
-    "build": "npm run build -w apps/backend && npm run build -w apps/dashboard",
-    "dev:backend": "npm run dev -w apps/backend",
-    "dev:dashboard": "npm run dev -w apps/dashboard"
+    "build": "npm run build -w app/backend && npm run build -w app/dashboard",
+    "dev:backend": "npm run dev -w app/backend",
+    "dev:dashboard": "npm run dev -w app/dashboard"
   }
 }

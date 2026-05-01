@@ -198,10 +198,10 @@ run_as_root useradd -r -s /bin/false "${SERVICE_USER}" 2>/dev/null || true
 run_as_root chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET_DIR}"
 
 echo "[3/11] Build backend (npm auto)"
-build_node_project_if_present "${TARGET_DIR}/apps/backend" "backend"
+build_node_project_if_present "${TARGET_DIR}/app/backend" "backend"
 
 echo "[4/11] Build dashboard for backend static serving (npm auto if package.json exists)"
-build_node_project_if_present "${TARGET_DIR}/apps/dashboard" "dashboard"
+build_node_project_if_present "${TARGET_DIR}/app/dashboard" "dashboard"
 
 echo "[5/11] Build AK620 agent (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/ak620-agent" "ak620-agent"
