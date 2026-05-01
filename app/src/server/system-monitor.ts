@@ -35,19 +35,6 @@ function readCpuPackageEnergyMicroJoules(): number | null {
     if (!fs.existsSync(namePath)) continue;
 
     const driverName = fs.readFileSync(namePath, "utf8").trim();
-    
-    // Zenpower removed due to instability
-    /*
-    if (driverName === "zenpower") {
-      const powerPath = path.join(hwmonPath, dir, "power1_input");
-      if (fs.existsSync(powerPath)) {
-        const valMw = Number(fs.readFileSync(powerPath, "utf8").trim());
-        if (Number.isFinite(valMw)) {
-          return valMw * 1000; 
-        }
-      }
-    }
-    */
   }
 
   if (!fs.existsSync(POWER_CAP_ROOT)) {

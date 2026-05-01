@@ -16,8 +16,8 @@ Vantage는 듀얼 RTX 3090 기반 로컬 AI 서버를 위한 시스템 운용 �
 - **케이스**: Lian Li O11 Air Mini
 - **팬**: 하단 ARCTIC P12 Slim ×2, 상단 Arctic P12 PWM PST ×2
 
-## 시스템 전력 측정 (AMD Ryzen 보정)
-AMD Ryzen 시스템을 위해 `zenpower` 커널 드라이버를 권장합니다. `/sys/class/hwmon/`에서 `zenpower` 드라이버를 탐색하여 정밀한 CPU 전력 데이터를 읽어오며, 드라이버가 없는 경우 Ryzen 5700X 모델에 맞춘 전력 추정 공식(`25W + 70W * usage`)을 적용하여 보정합니다.
+## 시스템 전력 측정
+AMD Ryzen 시스템을 보정하기 위해 기본 전력 추정 공식(`25W + 70W * usage`)을 적용하여 보정합니다.
 
 ## 2. Docker 및 Docker Compose 설치
 ```bash
