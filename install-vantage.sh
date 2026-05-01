@@ -172,7 +172,7 @@ build_node_project_if_present() {
   "
 }
 
-echo "[0/11] Preflight checks"
+echo "[0/10] Preflight checks"
 require_cmd rsync
 require_cmd systemctl
 require_cmd bash
@@ -197,22 +197,19 @@ echo "[2/11] Create service user"
 run_as_root useradd -r -s /bin/false "${SERVICE_USER}" 2>/dev/null || true
 run_as_root chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET_DIR}"
 
-echo "[3/11] Build backend (npm auto)"
-build_node_project_if_present "${TARGET_DIR}/app/backend" "backend"
+echo "[3/11] Build app (server + dashboard)"
+build_node_project_if_present "${TARGET_DIR}/app" "app"
 
-echo "[4/11] Build dashboard for backend static serving (npm auto if package.json exists)"
-build_node_project_if_present "${TARGET_DIR}/app/dashboard" "dashboard"
-
-echo "[5/11] Build AK620 agent (npm auto)"
+echo "[4/10] Build AK620 agent (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/ak620-agent" "ak620-agent"
 
-echo "[6/11] Build LLM gateway (npm auto)"
+echo "[5/10] Build LLM gateway (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/llm-gateway" "llm-gateway"
 
-echo "[7/11] Build adaptive-engine (npm auto)"
+echo "[6/10] Build adaptive-engine (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/adaptive-engine" "adaptive-engine"
 
-echo "[8/11] Build system-agent (npm auto)"
+echo "[7/10] Build system-agent (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/system-agent" "system-agent"
 
 # sudoers 권한 추가 (vantage 유저에게 시스템 제어 권한 부여)
@@ -234,14 +231,14 @@ fi
 run_as_root chown "root:${SERVICE_USER}" "$ADMIN_ENV_FILE"
 run_as_root chmod 0640 "$ADMIN_ENV_FILE"
 
-echo "[10/12] Ensure executable scripts"
+echo "[8/10] Ensure executable scripts"
 run_as_root chmod +x "${TARGET_DIR}/scripts/"*.sh
 
-echo "[10/11] Install systemd units"
+echo "[9/10] Install systemd units"
 run_as_root cp "${TARGET_DIR}/systemd/"*.service /etc/systemd/system/
 run_as_root systemctl daemon-reload
 
-echo "[11/11] Enable + restart all core services"
+echo "[10/10] Enable + restart all core services"
 for svc in "${SERVICES[@]}"; do
   run_as_root systemctl enable "$svc"
   run_as_root systemctl restart "$svc"

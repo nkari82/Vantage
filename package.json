@@ -3,12 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "app/backend",
-    "app/dashboard"
+    "app",
+    "services/ak620-agent",
+    "services/llm-gateway",
+    "services/adaptive-engine",
+    "services/system-agent"
   ],
   "scripts": {
-    "build": "npm run build -w app/backend && npm run build -w app/dashboard",
-    "dev:backend": "npm run dev -w app/backend",
-    "dev:dashboard": "npm run dev -w app/dashboard"
+    "build": "npm run build -w app",
+    "build:server": "npm run build:server -w app",
+    "build:client": "npm run build:client -w app",
+    "dev:server": "npm run dev:server -w app",
+    "dev:client": "npm run dev:client -w app"
   }
 }

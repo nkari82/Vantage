@@ -7,14 +7,14 @@ Wants=network-online.target
 Type=simple
 User=vantage
 Group=vantage
-WorkingDirectory=/opt/vantage/app/backend
+WorkingDirectory=/opt/vantage/app
 Environment=NODE_ENV=production
 Environment=VANTAGE_BACKEND_PORT=18080
-Environment=VANTAGE_CONFIG_PATH=/opt/vantage/app/backend/config.json
+Environment=VANTAGE_CONFIG_PATH=/opt/vantage/app/config.json
 Environment=VANTAGE_SCRIPTS_DIR=/opt/vantage/scripts
-Environment=VANTAGE_DASHBOARD_DIST=/opt/vantage/app/dashboard/dist
+Environment=VANTAGE_DASHBOARD_DIST=/opt/vantage/app/dist/client
 EnvironmentFile=-/etc/vantage/backend.env
-ExecStart=/usr/bin/node /opt/vantage/app/backend/dist/server.js
+ExecStart=/usr/bin/node /opt/vantage/app/dist/server/server.js
 Restart=always
 RestartSec=5
 StartLimitIntervalSec=300
