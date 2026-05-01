@@ -7,6 +7,7 @@ const backendBase = process.env.VANTAGE_BACKEND_URL ?? "http://127.0.0.1:18080";
 const upstreamBase = process.env.VANTAGE_UPSTREAM_URL ?? "http://127.0.0.1:8000";
 const listenPort = Number(process.env.VANTAGE_LLM_GATEWAY_PORT ?? 8080);
 const autoStart = (process.env.VANTAGE_AUTO_START_VLLM ?? "true") === "true";
+const adminToken = process.env.VANTAGE_ADMIN_TOKEN?.trim() ?? "";
 
 const app = express();
 
@@ -16,9 +17,14 @@ app.get("/health", (_req, res) => {
 
 async function postBackend(path: string): Promise<void> {
   const url = `${backendBase}${path}`;
+  const headers = new Headers({ "content-type": "application/json" });
+  if (adminToken) {
+    headers.set("authorization", `Bearer ${adminToken}`);
+  }
+
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: "{}",
   });
 

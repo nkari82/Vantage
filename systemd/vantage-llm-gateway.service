@@ -13,6 +13,7 @@ Environment=VANTAGE_LLM_GATEWAY_PORT=8080
 Environment=VANTAGE_BACKEND_URL=http://127.0.0.1:18080
 Environment=VANTAGE_UPSTREAM_URL=http://127.0.0.1:8000
 Environment=VANTAGE_AUTO_START_VLLM=true
+EnvironmentFile=-/etc/vantage/backend.env
 ExecStart=/usr/bin/node /opt/vantage/services/llm-gateway/dist/index.js
 Restart=always
 RestartSec=5
