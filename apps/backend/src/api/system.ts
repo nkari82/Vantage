@@ -1,10 +1,6 @@
-  router.get("/system-metrics", async (_req, res) => {
-    const metrics = readMetrics("system-metrics.jsonl", 100);
-    res.json({ metrics, total: metrics.length });
-  });
 import express, { Router } from "express";
 import { runCommand } from "../shell.js";
-import { getGpuStatus } from "../system-monitor.js";
+import { getGpuStatus, MONITORED_SERVICES } from "../system-monitor.js";
 import { readMetrics } from "../storage.js";
 import type { Ak620StatusView, AppConfig } from "../types.js";
 
@@ -49,6 +45,11 @@ export function createSystemRouter(deps: {
 
   router.get("/logs", async (req, res) => {
     const service = String(req.query.service ?? "vantage-backend.service");
+    if (!MONITORED_SERVICES.includes(service as (typeof MONITORED_SERVICES)[number])) {
+      res.status(400).json({ error: "Unsupported service" });
+      return;
+    }
+
     const lines = Number(req.query.lines ?? 80);
     const safeLines = Number.isFinite(lines) ? Math.max(20, Math.min(300, lines)) : 80;
 
@@ -60,9 +61,10 @@ export function createSystemRouter(deps: {
         .filter((line) => line.length > 0);
       res.json({ service, lines: parsed });
     } catch (error) {
+      console.error("Failed to fetch logs", error);
       res.status(500).json({
         error: "Failed to fetch logs",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "journalctl command failed",
         service,
       });
     }
@@ -73,9 +75,10 @@ export function createSystemRouter(deps: {
       await runCommand("/bin/systemctl", ["reboot"]);
       res.json({ ok: true });
     } catch (error) {
+      console.error("Failed to reboot system", error);
       res.status(500).json({
         error: "Failed to reboot system",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "systemctl command failed",
       });
     }
   });
@@ -85,15 +88,21 @@ export function createSystemRouter(deps: {
       await runCommand("/bin/systemctl", ["poweroff"]);
       res.json({ ok: true });
     } catch (error) {
+      console.error("Failed to shutdown system", error);
       res.status(500).json({
         error: "Failed to shutdown system",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "systemctl command failed",
       });
     }
   });
 
   router.get("/gpu-metrics", async (_req, res) => {
     const metrics = readMetrics("gpu-metrics.jsonl", 100);
+    res.json({ metrics, total: metrics.length });
+  });
+
+  router.get("/system-metrics", async (_req, res) => {
+    const metrics = readMetrics("system-metrics.jsonl", 100);
     res.json({ metrics, total: metrics.length });
   });
 

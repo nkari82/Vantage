@@ -30,17 +30,21 @@ export function createPowerRouter(deps: {
 
       await applyPowerMode(mode);
       if (mode === "LOW_POWER") {
-        await applyLowPowerEnhancements(deps.getConfig());
-        await stopVllmService();
+        const currentConfig = deps.getConfig();
+        await applyLowPowerEnhancements(currentConfig);
+        if (currentConfig.llmGateway.autoStopVllm) {
+          await stopVllmService();
+        }
       }
 
       deps.setCurrentMode(mode);
       deps.addPowerHistory(mode);
       res.json({ ok: true, mode: deps.getCurrentMode() });
     } catch (error) {
+      console.error("Failed to apply mode", error);
       res.status(500).json({
         error: "Failed to apply mode",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "power control command failed",
       });
     }
   });

@@ -42,9 +42,10 @@ export function createLlmRouter(deps: {
       deps.markLlmActivity();
       res.json({ ok: true });
     } catch (error) {
+      console.error("Failed to start vLLM", error);
       res.status(500).json({
         error: "Failed to start vLLM",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "vLLM start command failed",
       });
     }
   });
@@ -57,9 +58,10 @@ export function createLlmRouter(deps: {
       await applyLowPowerEnhancements(config);
       res.json({ ok: true });
     } catch (error) {
+      console.error("Failed to stop vLLM", error);
       res.status(500).json({
         error: "Failed to stop vLLM",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: "vLLM stop command failed",
       });
     }
   });

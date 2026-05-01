@@ -17,7 +17,7 @@
     "listenPort": 8080,
     "idleTimeoutMinutes": 30,
     "autoStartVllm": true,
-    "autoStopVllm": true,
+    "autoStopVllm": false,
     "activePowerMode": "STANDARD_280",
     "idlePowerMode": "LOW_POWER"
   },

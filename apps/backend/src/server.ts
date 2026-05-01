@@ -1,20 +1,25 @@
 import express from "express";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, loadConfig } from "./config.js";
-import { runCommand } from "./shell.js";
-import type { AppConfig, Ak620StatusView, PowerMode, SystemStatus } from "./types.js";
+import type { AppConfig, Ak620StatusView, GpuStatus, PowerMode, SystemMetrics, SystemStatus } from "./types.js";
 import {
   applyLowPowerEnhancements,
   applyPowerMode,
   isVllmActive,
-  startVllmService,
   stopVllmService,
 } from "./power-controller.js";
-import { getGpuStatus, getSystemMetrics } from "./system-monitor.js";
+import { getGpuStatus, getSystemMetrics, withEstimatedSystemPower } from "./system-monitor.js";
 import { appendMetric } from "./storage.js";
 import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
 import { createSystemRouter } from "./api/system.js";
+import { isAdminRoute, requireAdminToken } from "./security.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? path.resolve(__dirname, "../../dashboard/dist");
+const dashboardIndexPath = path.join(dashboardDistDir, "index.html");
 
 let powerHistory: { mode: PowerMode; timestamp: number }[] = [];
 const MAX_HISTORY = 50;
@@ -32,13 +37,24 @@ setInterval(async () => {
   gpus.forEach((gpu) => {
     appendMetric("gpu-metrics.jsonl", gpu);
   });
-  
-  const system = await getSystemMetrics();
+
+  const system = withEstimatedSystemPower(gpus, await getSystemMetrics());
   appendMetric("system-metrics.jsonl", system);
 }, 10_000);
 
 const app = express();
 app.use(express.json());
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, service: "vantage-backend" });
+});
+app.use((req, res, next) => {
+  if (isAdminRoute(req.method, req.path)) {
+    requireAdminToken(req, res, next);
+    return;
+  }
+
+  next();
+});
 
 let config = loadConfig();
 let currentMode: PowerMode = "ADAPTIVE";
@@ -78,7 +94,7 @@ app.use("/api", createPowerRouter({
   getPowerHistory: () => powerHistory,
   addPowerHistory: addPowerHistory,
   getConfig: () => config,
-  markLlmActivity: markLlmActivity
+  markLlmActivity: markLlmActivity,
 }));
 
 app.use("/api", createLlmRouter({
@@ -86,16 +102,16 @@ app.use("/api", createLlmRouter({
   markLlmActivity: markLlmActivity,
   saveConfig: saveConfig,
   getLlmGatewayEnabled: () => llmGatewayEnabled,
-  setLlmGatewayEnabled: (enabled: boolean) => { llmGatewayEnabled = enabled; }
+  setLlmGatewayEnabled: (enabled: boolean) => { llmGatewayEnabled = enabled; },
 }));
 
 app.use("/api", createSystemRouter({
   getConfig: () => config,
   makeAk620View: makeAk620View,
-  saveConfig: saveConfig
+  saveConfig: saveConfig,
 }));
 
-// Remaining routes
+// Remaining API routes
 app.get("/api/config", (_req, res) => {
   res.json(config);
 });
@@ -114,7 +130,8 @@ app.post("/api/config", (req, res) => {
 });
 
 app.get("/api/status", async (_req, res) => {
-  const gpus = await getGpuStatus();
+  const [gpus, baseSystem] = await Promise.all([getGpuStatus(), getSystemMetrics()]);
+  const system = withEstimatedSystemPower(gpus, baseSystem);
   const gpu0 = gpus.find((g) => g.index === 0);
 
   const status: SystemStatus = {
@@ -123,7 +140,7 @@ app.get("/api/status", async (_req, res) => {
     llmReady: await isVllmActive(),
     lastUsedAt,
     gpus,
-    system: await getSystemMetrics(),
+    system,
     gateway: {
       enabled: llmGatewayEnabled,
       upstreamUrl: config.llmGateway.upstreamUrl,
@@ -133,10 +150,24 @@ app.get("/api/status", async (_req, res) => {
       idleRemainingSeconds: getIdleRemainingSeconds(),
     },
     ak620: makeAk620View(gpu0?.temperatureC ?? 0),
-    alerts: checkAlerts(gpus),
+    alerts: checkAlerts(gpus, system),
   };
   res.json(status);
 });
+
+if (fs.existsSync(dashboardIndexPath)) {
+  app.use(express.static(dashboardDistDir, { extensions: ["html"], immutable: true, maxAge: "1h" }));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path === "/api") {
+      next();
+      return;
+    }
+
+    res.sendFile(dashboardIndexPath);
+  });
+} else {
+  console.warn(`[vantage-backend] dashboard dist not found: ${dashboardDistDir}`);
+}
 
 // Helpers
 function getIdleRemainingSeconds(): number {
@@ -148,8 +179,12 @@ function getIdleRemainingSeconds(): number {
   return Math.max(0, remain);
 }
 
-function checkAlerts(gpus: any[]): string[] {
+function checkAlerts(gpus: GpuStatus[], system: SystemMetrics): string[] {
   const alerts: string[] = [];
+  if (system.degraded) {
+    alerts.push(system.degradedReason ?? "System metrics degraded");
+  }
+
   for (const gpu of gpus) {
     if (gpu.temperatureC >= config.alerts.gpuTempThresholdC) {
       alerts.push(`GPU ${gpu.index} High Temp: ${gpu.temperatureC}°C`);
@@ -179,7 +214,9 @@ async function ensureAdaptiveState(): Promise<void> {
 
   adaptiveTransitionInProgress = true;
   try {
-    await stopVllmService();
+    if (config.llmGateway.autoStopVllm) {
+      await stopVllmService();
+    }
     await applyPowerMode(config.llmGateway.idlePowerMode);
     await applyLowPowerEnhancements(config);
     console.log("[adaptive] transitioned to idle power mode after timeout");
@@ -194,7 +231,8 @@ setInterval(() => {
   void ensureAdaptiveState();
 }, 15_000);
 
-const port = process.env.PORT ?? 18080;
+const port = process.env.VANTAGE_BACKEND_PORT ?? process.env.PORT ?? 18080;
 app.listen(port, () => {
   console.log(`[vantage-backend] listening on ${port}`);
+  console.log(`[vantage-backend] dashboard dist: ${dashboardDistDir}`);
 });

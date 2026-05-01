@@ -4,8 +4,13 @@ export interface SystemMetrics {
   cpuClockMhz: number;
   memoryUsedGb: number;
   memoryTotalGb: number;
+  cpuPowerW: number | null;
+  basePowerEstimateW: number;
+  estimatedSystemPowerW: number | null;
   temperatures: Record<string, number>;
   serviceStatus: Record<string, string>;
+  degraded: boolean;
+  degradedReason?: string;
 }
 export type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
 
