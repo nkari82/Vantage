@@ -1,16 +1,3 @@
-      function renderOverview(status) {
-        const totalPower = (status.gpus || []).reduce((acc, g) => acc + (g.powerW || 0), 0);
-        const maxTemp = Math.max(0, ...(status.gpus || []).map((g) => g.temperatureC || 0));
-        const html = [
-          ["Current Mode", status.mode],
-          ["Total GPU Power", `${totalPower.toFixed(1)} W`],
-          ["LLM Ready", status.llmReady ? "Running" : "Stopped"],
-          ["Gateway Enabled", String(status.gateway.enabled)],
-          ["Max GPU Temp", `${maxTemp} °C`],
-          ["Last Request", fmtTs(status.gateway.lastUsedAt)],
-        ].map(([k, v]) => `<div class='muted'>${k}</div><div>${v}</div>`).join("");
-        document.getElementById("overview").innerHTML = html;
-      }
 <!doctype html>
 <html lang="ko">
   <head>
@@ -64,11 +51,16 @@
 
       <div class="grid">
         <div class="card" style="grid-column: 1 / -1;">
-          <h3>GPU Metrics & Power History</h3>
-          <div class="grid" style="grid-template-columns: 2fr 1fr;">
-            <canvas id="gpuChart" style="max-height: 200px;"></canvas>
-            <div id="powerHistory" class="kv" style="max-height: 200px; overflow-y: auto;"></div>
+          <h3>Telemetry & History</h3>
+          <div class="grid" style="grid-template-columns: 1fr 1fr 1fr;">
+            <canvas id="gpuChart" style="max-height: 150px;"></canvas>
+            <canvas id="cpuChart" style="max-height: 150px;"></canvas>
+            <canvas id="ramChart" style="max-height: 150px;"></canvas>
           </div>
+        </div>
+        <div class="card" style="grid-column: 1 / -1;">
+          <h3>Power History</h3>
+          <div id="powerHistory" class="kv" style="max-height: 100px; overflow-y: auto;"></div>
         </div>
         <div class="card">
           <h3>Overview</h3>
@@ -78,6 +70,11 @@
         <div class="card">
           <h3>System Metrics</h3>
           <div id="systemMetrics" class="kv"></div>
+        </div>
+
+        <div class="card">
+          <h3>Service Health</h3>
+          <div id="serviceHealth" class="row" style="gap:6px"></div>
         </div>
 
         <div class="card">
@@ -182,6 +179,20 @@
         });
       }
 
+      function renderOverview(status) {
+        const totalPower = (status.gpus || []).reduce((acc, g) => acc + (g.powerW || 0), 0);
+        const maxTemp = Math.max(0, ...(status.gpus || []).map((g) => g.temperatureC || 0));
+        const html = [
+          ["Current Mode", status.mode],
+          ["Total GPU Power", `${totalPower.toFixed(1)} W`],
+          ["LLM Ready", status.llmReady ? "Running" : "Stopped"],
+          ["Gateway Enabled", String(status.gateway.enabled)],
+          ["Max GPU Temp", `${maxTemp} °C`],
+          ["Last Request", fmtTs(status.gateway.lastUsedAt)],
+        ].map(([k, v]) => `<div class='muted'>${k}</div><div>${v}</div>`).join("");
+        document.getElementById("overview").innerHTML = html;
+      }
+
       function renderSystem(status) {
         const sys = status.system;
         const tempEntries = Object.entries(sys.temperatures);
@@ -197,6 +208,11 @@
           `</div>`;
         
         document.getElementById("systemMetrics").innerHTML = html + coresHtml;
+
+        const health = document.getElementById("serviceHealth");
+        health.innerHTML = Object.entries(sys.serviceStatus).map(([name, status]) => 
+          `<span class='pill ${status === "active" ? "ok" : "bad"}' title='${name}'>${name.split("-")[1] || name}</span>`
+        ).join("");
       }
 
       function renderGateway(status) {
@@ -286,6 +302,8 @@
           alert(`종료 실패: ${e.message}`);
         }
       }
+
+      async function refreshStatus() {
         try {
           const status = await api("/api/status");
           latestStatus = status;
@@ -295,20 +313,8 @@
           renderGateway(status);
           renderGpu(status);
           renderAk620(status);
-          renderAlerts(status);
         } catch (error) {
           console.error(error);
-        }
-      }
-
-      function renderAlerts(status) {
-        const alertCard = document.getElementById("alertCard");
-        const alertList = document.getElementById("alertList");
-        if (status.alerts && status.alerts.length > 0) {
-          alertCard.style.display = "block";
-          alertList.innerHTML = status.alerts.map(a => `<li>${a}</li>`).join("");
-        } else {
-          alertCard.style.display = "none";
         }
       }
 
@@ -388,8 +394,17 @@
       akRange.addEventListener("input", () => { akValue.value = akRange.value; });
       akValue.addEventListener("input", () => { akRange.value = akValue.value; });
 
-      const gpuCtx = document.getElementById("gpuChart").getContext("2d");
-      const gpuChart = new Chart(gpuCtx, {
+      const cpuChart = new Chart(document.getElementById("cpuChart").getContext("2d"), {
+        type: "line",
+        data: { labels: [], datasets: [{ label: "CPU Usage (%)", data: [], borderColor: "#22c55e", tension: 0.1 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } },
+      });
+      const ramChart = new Chart(document.getElementById("ramChart").getContext("2d"), {
+        type: "line",
+        data: { labels: [], datasets: [{ label: "RAM Usage (GB)", data: [], borderColor: "#e11d48", tension: 0.1 }] },
+        options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } },
+      });
+      const gpuChart = new Chart(document.getElementById("gpuChart").getContext("2d"), {
         type: "line",
         data: {
           labels: [],
@@ -404,7 +419,6 @@
       async function updateGpuChart() {
         try {
           const { metrics } = await api("/api/gpu-metrics");
-          // Assuming metrics is an array of objects
           const gpu0Metrics = metrics.filter(m => m.index === 0);
           gpuChart.data.labels = gpu0Metrics.map((_, i) => i);
           gpuChart.data.datasets[0].data = gpu0Metrics.map(m => m.powerW);
@@ -415,7 +429,21 @@
         }
       }
 
-      // ... existing code
+      async function updateSystemChart() {
+        try {
+          const { metrics } = await api("/api/system-metrics");
+          cpuChart.data.labels = metrics.map((_, i) => i);
+          cpuChart.data.datasets[0].data = metrics.map(m => m.cpuUsagePercent);
+          cpuChart.update();
+          
+          ramChart.data.labels = metrics.map((_, i) => i);
+          ramChart.data.datasets[0].data = metrics.map(m => m.memoryUsedGb);
+          ramChart.update();
+        } catch (e) {
+          console.error("Failed to load system metrics", e);
+        }
+      }
+
       async function updatePowerHistory() {
         try {
           const { history } = await api("/api/power-history");
@@ -429,14 +457,15 @@
         }
       }
 
-      // ... existing code
       refreshStatus();
       loadLogs();
       updateGpuChart();
+      updateSystemChart();
       updatePowerHistory();
       setInterval(refreshStatus, 5000);
       setInterval(loadLogs, 10000);
       setInterval(updateGpuChart, 10000);
+      setInterval(updateSystemChart, 10000);
       setInterval(updatePowerHistory, 10000);
     </script>
   </body>
