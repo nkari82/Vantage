@@ -2,28 +2,45 @@ import type { ApiOk, HistoryEnvelope, LogEnvelope, MetricEnvelope, PowerMode, Sy
 
 const backendBase = "";
 const adminTokenKey = "vantage.adminToken";
+const gatewayTokenKey = "vantage.gatewayToken";
 
-function getAdminToken(): string {
-  return window.localStorage.getItem(adminTokenKey)?.trim()
-    ?? window.sessionStorage.getItem(adminTokenKey)?.trim()
+function readStoredToken(key: string): string {
+  return window.localStorage.getItem(key)?.trim()
+    ?? window.sessionStorage.getItem(key)?.trim()
     ?? "";
 }
 
-function setAdminToken(token: string, remember = true): void {
+function writeStoredToken(key: string, token: string, remember = true): void {
   const trimmed = token.trim();
-  window.localStorage.removeItem(adminTokenKey);
-  window.sessionStorage.removeItem(adminTokenKey);
+  window.localStorage.removeItem(key);
+  window.sessionStorage.removeItem(key);
 
   if (!trimmed) {
     return;
   }
 
   if (remember) {
-    window.localStorage.setItem(adminTokenKey, trimmed);
+    window.localStorage.setItem(key, trimmed);
     return;
   }
 
-  window.sessionStorage.setItem(adminTokenKey, trimmed);
+  window.sessionStorage.setItem(key, trimmed);
+}
+
+function getAdminToken(): string {
+  return readStoredToken(adminTokenKey);
+}
+
+function setAdminToken(token: string, remember = true): void {
+  writeStoredToken(adminTokenKey, token, remember);
+}
+
+function getGatewayToken(): string {
+  return readStoredToken(gatewayTokenKey) || "x";
+}
+
+function setGatewayToken(token: string, remember = true): void {
+  writeStoredToken(gatewayTokenKey, token || "x", remember);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -56,6 +73,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   getAdminToken,
   setAdminToken,
+  getGatewayToken,
+  setGatewayToken,
   login: (username: string, password: string) => request<{ ok: true; token: string }>("/api/login", {
     method: "POST",
     body: JSON.stringify({ username, password }),

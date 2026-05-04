@@ -33,7 +33,7 @@ export default function App() {
   const [logLines, setLogLines] = useState(80);
   const [akInterval, setAkInterval] = useState(4);
   const [isLogin, setIsLogin] = useState(() => !api.getAdminToken());
-  const [gatewayToken, setGatewayToken] = useState(() => api.getAdminToken());
+  const [gatewayToken, setGatewayToken] = useState(() => api.getGatewayToken());
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
@@ -72,7 +72,6 @@ export default function App() {
     try {
       const data = await api.login(loginUser, loginPass);
       api.setAdminToken(data.token, rememberMe);
-      setGatewayToken(data.token);
       setIsLogin(false);
       setLoginError(null);
       setNotice("로그인했습니다.");
@@ -84,7 +83,6 @@ export default function App() {
 
   function handleLogout() {
     api.setAdminToken("");
-    setGatewayToken("");
     setIsLogin(true);
     setLoginUser("");
     setLoginPass("");
@@ -92,9 +90,10 @@ export default function App() {
   }
 
   function saveGatewayToken() {
-    setGatewayToken(gatewayToken.trim() || "x");
-    api.setAdminToken(gatewayToken.trim() || "x", true);
-    setNotice((gatewayToken.trim() || "x") ? "LLM Gateway token을 저장했습니다." : "LLM Gateway token을 삭제했습니다.");
+    const nextGatewayToken = gatewayToken.trim() || "x";
+    setGatewayToken(nextGatewayToken);
+    api.setGatewayToken(nextGatewayToken, true);
+    setNotice("LLM Gateway token을 저장했습니다.");
   }
 
   async function confirmDangerousAction(message: string, action: () => Promise<unknown>, success: string) {
