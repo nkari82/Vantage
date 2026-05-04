@@ -72,7 +72,7 @@ function loadCurrentMode(): PowerMode {
     if (fs.existsSync(SYSTEM_STATE_PATH)) {
       const raw = fs.readFileSync(SYSTEM_STATE_PATH, 'utf8');
       const state = JSON.parse(raw);
-      if (state.currentMode && ['DEFAULT', 'LOW_POWER', 'STANDARD_250', 'STANDARD_280', 'TURBO', 'ADAPTIVE'].includes(state.currentMode)) {
+      if (state.currentMode && ['DEFAULT', 'LOW_POWER', 'STANDARD_250', 'STANDARD_280', 'ADAPTIVE'].includes(state.currentMode)) {
         return state.currentMode as PowerMode;
       }
     }
