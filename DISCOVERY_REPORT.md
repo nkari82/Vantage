@@ -26,7 +26,7 @@
 #### SystemStatus (GET /api/status)
 ```typescript
 {
-  mode: PowerMode;                    // "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE"
+  mode: PowerMode;                    // "DEFAULT" | "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "ADAPTIVE"
   llmGatewayEnabled: boolean;         // LLM Gateway 활성화 여부
   llmReady: boolean;                  // vLLM 서비스 실행 중 여부
   lastUsedAt: number | null;          // 마지막 LLM 요청 타임스탬프 (ms)
@@ -120,10 +120,10 @@
       "cpuGovernor": "performance",
       "description": "권장 LLM 운용"
     },
-    "TURBO": {
-      "gpuPowerLimitW": 350,
-      "cpuGovernor": "performance",
-      "description": "최대 성능 모드"
+    "DEFAULT": {
+      "gpuPowerLimitW": 150,
+      "cpuGovernor": "ondemand",
+      "description": "기본 고성능 운용 모드"
     }
   }
 }
@@ -199,7 +199,7 @@ let adaptiveTransitionInProgress = false;
 
 | 섹션 | 컴포넌트 | 상태 |
 |------|---------|------|
-| **전력 모드** | 5개 모드 버튼 (LOW_POWER, STANDARD_250, STANDARD_280, TURBO, ADAPTIVE) | ✓ 구현됨 |
+| **전력 모드** | 5개 모드 버튼 (DEFAULT, LOW_POWER, STANDARD_250, STANDARD_280, ADAPTIVE) | ✓ 구현됨 |
 | **LLM 제어** | Start / Stop / Keepalive Touch 버튼 | ✓ 구현됨 |
 | **현재 상태** | 상태 요약 + JSON 표시 | ✓ 기본 구현 |
 | **자동 갱신** | 5초 주기 상태 갱신 | ✓ 구현됨 |
@@ -362,7 +362,7 @@ CPU (barLevel=1) → GPU0 (barLevel=2) → GPU1 (barLevel=3) → CPU → ...
 
 ### 7.1 PowerMode
 ```typescript
-type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
+type PowerMode = "DEFAULT" | "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "ADAPTIVE";
 ```
 
 ### 7.2 설정 인터페이스

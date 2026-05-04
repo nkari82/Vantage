@@ -6,7 +6,7 @@
 Vantage는 듀얼 RTX 3090 기반 로컬 AI 서버를 위한 시스템 운용 플랫폼입니다. 시스템 상태 모니터링, GPU 전력 모드 제어, LLM Gateway 자동 관리(vLLM 기동/종료), 그리고 AK620 Digital 디스플레이 연동을 통합 웹 대시보드에서 관리합니다. 듀얼 RTX 3090 서버를 저전력 홈서버와 고성능 LLM 서버 사이에서 자동 전환하며 전력을 최적화합니다.
 
 ### 주요 기능
-- **전력 모드 제어**: LOW_POWER, STANDARD_250, STANDARD_280, TURBO, ADAPTIVE 모드 지원
+- **전력 모드 제어**: DEFAULT, LOW_POWER, STANDARD_250, STANDARD_280, ADAPTIVE 모드 지원
 - **LLM Gateway 관리**: vLLM 자동 시작/종료, 유휴 타임아웃 설정
 - **시스템 모니터링**: GPU 온도/전력/이용률, CPU 패키지 전력(RAPL), 시스템 전력 추정
 - **AK620 Digital 연동**: 온도 표시, BAR 레벨 제어, 새로고침 간격 설정 (상태 파일 IPC)

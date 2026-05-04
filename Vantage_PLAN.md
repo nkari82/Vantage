@@ -8,7 +8,7 @@
 
 - 시스템 상태 모니터링
 - GPU 전력 모드 제어
-- 저전력/표준/터보/아답티브 모드 전환
+- 기본/저전력/표준/아답티브 모드 전환
 - LLM Gateway 자동 기동/종료
 - LLM Gateway 활성화/비활성화
 - vLLM 모델 서버 제어
@@ -71,15 +71,15 @@ GPU: 하단 흡기 공기를 받아 히트싱크 냉각
 
 ## 4. 전력 모드
 
-Vantage는 4가지 주요 운용 모드를 제공한다.
+Vantage는 5가지 주요 운용 모드를 제공한다.
 
 | 모드 | 설명 | GPU Power Limit |
 |---|---|---|
+| Default Mode | 기본 고성능 운용 모드 | 150W |
 | Adaptive Mode | 요청 발생 시 자동 고성능 전환, idle 시 저전력 복귀 | 자동 |
 | Low Power Mode | 대시보드/API/DB만 유지, GPU 최소 전력, 시스템 최소 대기전력 | 50~70W (최소) |
 | Standard Mode 250 | 조용한 LLM 운용 | 250W |
 | Standard Mode 280 | 권장 LLM 운용 | 280W |
-| Turbo Mode | 최대 성능 모드 | 350W |
 
 사용자는 수동으로 모드를 선택할 수 있고, Adaptive Mode에서는 Vantage가 요청 상태에 따라 자동으로 전환한다.
 
@@ -528,7 +528,7 @@ GET /api/ak620/status
 - Low Power Mode
 - Standard 250
 - Standard 280
-- Turbo
+- Default
 - 현재 power limit 표시
 
 ### 11.3 LLM Gateway
@@ -583,7 +583,7 @@ vantage/
 │  ├─ vantage-power-low.sh
 │  ├─ vantage-power-standard-250.sh
 │  ├─ vantage-power-standard-280.sh
-│  ├─ vantage-power-turbo.sh
+│  ├─ (legacy turbo script removed)
 │  ├─ vantage-vllm-start.sh
 │  └─ vantage-vllm-stop.sh
 │
@@ -656,7 +656,7 @@ Vantage는 시스템 전력과 서비스를 직접 제어하므로 권한 관리
 vantage ALL=(root) NOPASSWD: /usr/local/bin/vantage-power-low.sh
 vantage ALL=(root) NOPASSWD: /usr/local/bin/vantage-power-standard-250.sh
 vantage ALL=(root) NOPASSWD: /usr/local/bin/vantage-power-standard-280.sh
-vantage ALL=(root) NOPASSWD: /usr/local/bin/vantage-power-turbo.sh
+# legacy turbo sudo entry removed; DEFAULT mode is now the primary high-performance mode
 vantage ALL=(root) NOPASSWD: /bin/systemctl start vllm-coder.service
 vantage ALL=(root) NOPASSWD: /bin/systemctl stop vllm-coder.service
 ```
@@ -724,7 +724,7 @@ vantage ALL=(root) NOPASSWD: /bin/systemctl stop vllm-coder.service
 4. Gateway는 활성화/비활성화 가능해야 한다.
 5. AK620은 보조 물리 디스플레이로 사용한다.
 6. 시스템 안정성이 성능보다 우선이다.
-7. Turbo Mode는 수동 모드로만 사용한다.
+7. Default Mode가 기본 고성능 수동 모드를 담당한다.
 8. Vantage 핵심 서비스는 항상 켜져 있어야 하며, 리부팅 후 자동 복구되어야 한다.
 ```
 
