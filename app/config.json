@@ -22,6 +22,11 @@
     "idlePowerMode": "LOW_POWER"
   },
   "powerModes": {
+    "DEFAULT": {
+      "gpuPowerLimitW": 150,
+      "cpuGovernor": "ondemand",
+      "description": "균형 잡힌 기본 모드"
+    },
     "LOW_POWER": {
       "gpuPowerLimitW": 60,
       "cpuGovernor": "powersave",

@@ -15,7 +15,7 @@ export function createPowerRouter(deps: {
   router.post("/mode", async (req, res) => {
     const mode = req.body?.mode as PowerMode | undefined;
 
-    if (!mode || !["LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"].includes(mode)) {
+    if (!mode || !["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"].includes(mode)) {
       res.status(400).json({ error: "Invalid mode" });
       return;
     }
