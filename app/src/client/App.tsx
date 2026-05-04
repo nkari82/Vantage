@@ -90,7 +90,7 @@ export default function App() {
   }
 
   function saveGatewayToken() {
-    const nextGatewayToken = gatewayToken.trim() || "x";
+    const nextGatewayToken = gatewayToken.trim();
     setGatewayToken(nextGatewayToken);
     api.setGatewayToken(nextGatewayToken, true);
     setNotice("LLM Gateway token을 저장했습니다.");
@@ -318,11 +318,11 @@ export default function App() {
               type="text"
               value={gatewayToken}
               onChange={(event) => setGatewayToken(event.target.value)}
-              placeholder="x"
+              placeholder="Gateway token"
             />
             <button onClick={saveGatewayToken}>Save Token</button>
           </div>
-          <p className="muted-copy">LLM Gateway 기본 토큰은 x이며, 필요하면 여기서 덮어쓸 수 있습니다.</p>
+          <p className="muted-copy">설치 시 생성된 LLM Gateway 내부 토큰이 필요할 때만 저장하세요.</p>
           <div className="button-row">
             <button onClick={() => void runAction(() => api.setGatewayEnabled(!(status?.llmGatewayEnabled ?? false)), status?.llmGatewayEnabled ? "LLM Gateway를 비활성화했습니다." : "LLM Gateway를 활성화했습니다.")}>{status?.llmGatewayEnabled ? "Disable Gateway" : "Enable Gateway"}</button>
             <button onClick={() => void runAction(() => api.touchLlm(), "LLM Gateway keepalive를 전송했습니다.")}>Touch</button>

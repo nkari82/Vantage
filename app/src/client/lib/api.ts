@@ -36,11 +36,11 @@ function setAdminToken(token: string, remember = true): void {
 }
 
 function getGatewayToken(): string {
-  return readStoredToken(gatewayTokenKey) || "x";
+  return readStoredToken(gatewayTokenKey);
 }
 
 function setGatewayToken(token: string, remember = true): void {
-  writeStoredToken(gatewayTokenKey, token || "x", remember);
+  writeStoredToken(gatewayTokenKey, token, remember);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
