@@ -13,7 +13,12 @@
     "build": "npm run build -w app",
     "build:server": "npm run build:server -w app",
     "build:client": "npm run build:client -w app",
+    "start": "npm run start -w app",
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm run dev:server -w app\" \"npm run dev:client -w app\"",
     "dev:server": "npm run dev:server -w app",
     "dev:client": "npm run dev:client -w app"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }
