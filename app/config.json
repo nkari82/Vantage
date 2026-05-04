@@ -41,11 +41,6 @@
       "gpuPowerLimitW": 280,
       "cpuGovernor": "performance",
       "description": "권장 LLM 운용"
-    },
-    "TURBO": {
-      "gpuPowerLimitW": 350,
-      "cpuGovernor": "performance",
-      "description": "최대 성능 모드"
     }
   },
   "alerts": {

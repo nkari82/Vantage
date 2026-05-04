@@ -1,4 +1,4 @@
-export type PowerMode = "DEFAULT" | "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
+export type PowerMode = "DEFAULT" | "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "ADAPTIVE";
 
 export interface GpuStatus {
   index: number;
