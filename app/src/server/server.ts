@@ -3,7 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, loadConfig } from "./config.js";
-import type { AppConfig, Ak620StatusView, GpuStatus, PowerMode, SystemMetrics, SystemStatus } from "../shared/types.js";
+import type {
+  AppConfig,
+  Ak620StatusView,
+  GpuStatus,
+  PowerMode,
+  SteamSessionState,
+  SystemMetrics,
+  SystemStatus,
+} from "../shared/types.js";
 import { getSystemController } from "./controller-factory.js";
 import {
   applyLowPowerEnhancements,
@@ -13,11 +21,24 @@ import {
 } from "./power-controller.js";
 import { getGpuStatus, getSystemMetrics, withEstimatedSystemPower } from "./system-monitor.js";
 import { PowerTracker } from "./power-tracker.js";
-import { appendMetric } from "./storage.js";
+import {
+  appendMetric,
+  purgeExpiredSteamQueue,
+  readSteamSessionState,
+  summarizeSteamQueue,
+  writeSteamSessionState,
+} from "./storage.js";
 import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
 import { createSystemRouter } from "./api/system.js";
-import { getConfiguredSystemToken, isAdminRoute, requireAdminToken } from "./security.js";
+import { createSteamRouter } from "./api/steam.js";
+import {
+  getConfiguredSystemToken,
+  isAdminLoginConfigured,
+  isAdminRoute,
+  requireAdminToken,
+  validateAdminCredentials,
+} from "./security.js";
 
 const controller = getSystemController();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +116,12 @@ let currentMode: PowerMode = loadCurrentMode();
 let lastUsedAt: number | null = null;
 let llmGatewayEnabled = config.llmGateway.enabled;
 let adaptiveTransitionInProgress = false;
+let steamSessionState: SteamSessionState = readSteamSessionState();
+
+function setSteamSessionState(next: SteamSessionState): void {
+  steamSessionState = next;
+  writeSteamSessionState(next);
+}
 
 function markLlmActivity(): void {
   lastUsedAt = Date.now();
@@ -169,6 +196,13 @@ app.use("/api", createSystemRouter({
   controller: controller,
 }));
 
+app.use("/api", createSteamRouter({
+  getConfig: () => config,
+  getCurrentMode: () => currentMode,
+  markLlmActivity: markLlmActivity,
+  getSteamSessionState: () => steamSessionState,
+  setSteamSessionState: setSteamSessionState,
+}));
 
 app.get("/api/config", (_req, res) => {
   res.json(config);
@@ -188,12 +222,25 @@ app.post("/api/config", (req, res) => {
 });
 
 app.post("/api/login", (req, res) => {
-  const { username, password } = req.body;
-  if (username === "admin" && password === "18184444") {
-    res.json({ ok: true, token: getConfiguredSystemToken() });
-  } else {
-    res.status(401).json({ error: "Invalid credentials" });
+  if (!isAdminLoginConfigured()) {
+    res.status(503).json({ error: "Admin login is not configured" });
+    return;
   }
+
+  const username = typeof req.body?.username === "string" ? req.body.username : "";
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+  if (!validateAdminCredentials(username, password)) {
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  const token = getConfiguredSystemToken();
+  if (!token) {
+    res.status(503).json({ error: "Admin token is not configured" });
+    return;
+  }
+
+  res.json({ ok: true, token });
 });
 
 app.get("/api/status", async (_req, res) => {
@@ -201,11 +248,17 @@ app.get("/api/status", async (_req, res) => {
   const system = withEstimatedSystemPower(gpus, baseSystem);
   const gpu0 = gpus.find((g) => g.index === 0);
 
+  const { queue } = purgeExpiredSteamQueue();
+  const queueSummary = summarizeSteamQueue(queue);
+
   const status: SystemStatus = {
     mode: currentMode,
     llmGatewayEnabled,
     llmReady: await isVllmActive(),
     lastUsedAt,
+    steamSessionActive: currentMode === "ADAPTIVE" ? steamSessionState.active : false,
+    steamSessionStartedAt: currentMode === "ADAPTIVE" ? steamSessionState.startedAt : null,
+    queueSummary,
     gpus,
     system,
     gateway: {
@@ -290,8 +343,33 @@ function checkAlerts(gpus: GpuStatus[], system: SystemMetrics): string[] {
   return alerts;
 }
 
+function evaluateSteamWatchdog(now: number): void {
+  if (!steamSessionState.active || !steamSessionState.watchdogExpiresAt) {
+    return;
+  }
+  if (now <= steamSessionState.watchdogExpiresAt) {
+    return;
+  }
+
+  setSteamSessionState({
+    active: false,
+    startedAt: null,
+    lastUpdatedAt: now,
+    watchdogExpiresAt: null,
+    replayRequestedAt: now,
+  });
+  console.warn("[steam] watchdog timeout reached, forcing session inactive state");
+}
+
 async function ensureAdaptiveState(): Promise<void> {
+  const now = Date.now();
+  evaluateSteamWatchdog(now);
+
   if (adaptiveTransitionInProgress || currentMode !== "ADAPTIVE" || !llmGatewayEnabled) {
+    return;
+  }
+
+  if (steamSessionState.active || steamSessionState.replayRequestedAt !== null) {
     return;
   }
 
@@ -300,7 +378,7 @@ async function ensureAdaptiveState(): Promise<void> {
     return;
   }
 
-  const idleElapsed = Date.now() - lastUsedAt;
+  const idleElapsed = now - lastUsedAt;
   if (idleElapsed < idleTimeoutMs) {
     return;
   }
