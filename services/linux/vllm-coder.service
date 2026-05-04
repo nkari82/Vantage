@@ -1,0 +1,30 @@
+[Unit]
+Description=Vantage vLLM Coder Service
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vantage
+Group=vantage
+WorkingDirectory=/opt/vantage
+ExecStart=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-start.sh
+ExecStop=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-stop.sh
+Restart=on-failure
+RestartSec=20
+# ... (previous content)
+TimeoutStartSec=600
+TimeoutStopSec=120
+# ...
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vllm-coder
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/vantage
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
