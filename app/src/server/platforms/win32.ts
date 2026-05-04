@@ -22,9 +22,9 @@ export class Win32Controller implements ISystemController {
     if (!modeConfig) throw new Error(`Unknown mode: ${mode}`);
 
     // Windows 전원 모드 매핑 (powercfg /list 참고)
-    let guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"; // Default/Balanced
+    let guid = "381b4222-f694-41f0-9685-ff5bb260df2e"; // Default/High performance
     if (mode === "LOW_POWER") guid = "a1841308-3541-4fab-bc81-f71556f20b4a";
-    else if (mode === "TURBO") guid = "381b4222-f694-41f0-9685-ff5bb260df2e";
+    else if (mode === "STANDARD_250" || mode === "STANDARD_280") guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
     
     await runCommand("powercfg", ["/setactive", guid]);
   }
