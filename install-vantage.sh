@@ -220,13 +220,16 @@ vantage ALL=(root) NOPASSWD: /bin/systemctl halt
 EOF
 run_as_root chmod 0440 /etc/sudoers.d/vantage-system
 
-# Admin token for privileged backend API calls.
+# System token and LLM gateway token for privileged backend API calls.
 run_as_root mkdir -p "$ADMIN_ENV_DIR"
 if [[ "$DRY_RUN" == "true" ]]; then
-  echo "[DRY-RUN] create $ADMIN_ENV_FILE with VANTAGE_ADMIN_TOKEN if missing"
-elif [[ ! -f "$ADMIN_ENV_FILE" ]] || ! grep -q '^VANTAGE_ADMIN_TOKEN=' "$ADMIN_ENV_FILE"; then
-  ADMIN_TOKEN="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
-  printf 'VANTAGE_ADMIN_TOKEN=%s\n' "$ADMIN_TOKEN" | "${AS_ROOT[@]}" tee "$ADMIN_ENV_FILE" >/dev/null
+  echo "[DRY-RUN] create $ADMIN_ENV_FILE with VANTAGE_SYSTEM_TOKEN / VANTAGE_LLM_GATEWAY_TOKEN if missing"
+else
+  EXISTING_SYSTEM_TOKEN="$(run_as_root sh -c "grep '^VANTAGE_SYSTEM_TOKEN=' '$ADMIN_ENV_FILE' 2>/dev/null | tail -n1 | cut -d= -f2-")"
+  EXISTING_GATEWAY_TOKEN="$(run_as_root sh -c "grep '^VANTAGE_LLM_GATEWAY_TOKEN=' '$ADMIN_ENV_FILE' 2>/dev/null | tail -n1 | cut -d= -f2-")"
+  SYSTEM_TOKEN="${EXISTING_SYSTEM_TOKEN:-$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')}"
+  GATEWAY_TOKEN="${EXISTING_GATEWAY_TOKEN:-$SYSTEM_TOKEN}"
+  printf 'VANTAGE_SYSTEM_TOKEN=%s\nVANTAGE_LLM_GATEWAY_TOKEN=%s\n' "$SYSTEM_TOKEN" "$GATEWAY_TOKEN" | "${AS_ROOT[@]}" tee "$ADMIN_ENV_FILE" >/dev/null
 fi
 run_as_root chown "root:${SERVICE_USER}" "$ADMIN_ENV_FILE"
 run_as_root chmod 0640 "$ADMIN_ENV_FILE"

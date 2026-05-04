@@ -9,8 +9,31 @@ const SAFE_GET_PATHS = new Set([
   "/api/power-history",
 ]);
 
-function getConfiguredAdminToken(): string {
-  return process.env.VANTAGE_ADMIN_TOKEN?.trim() ?? "";
+let cachedSystemToken: string | null = null;
+
+export function getConfiguredSystemToken(): string {
+  if (cachedSystemToken) return cachedSystemToken;
+
+  const systemToken = process.env.VANTAGE_SYSTEM_TOKEN?.trim();
+  if (systemToken) {
+    cachedSystemToken = systemToken;
+    return cachedSystemToken;
+  }
+
+  cachedSystemToken = "18184444";
+  return cachedSystemToken;
+}
+
+export function isAdminRoute(method: string, path: string): boolean {
+  if (method === "GET" && SAFE_GET_PATHS.has(path)) {
+    return false;
+  }
+  // POST /api/login은 토큰이 필요 없음
+  if (method === "POST" && path === "/api/login") {
+    return false;
+  }
+
+  return path.startsWith("/api/");
 }
 
 function extractToken(headerValue: string | undefined): string {
@@ -32,16 +55,8 @@ function tokensMatch(providedToken: string, configuredToken: string): boolean {
   return provided.length === configured.length && crypto.timingSafeEqual(provided, configured);
 }
 
-export function isAdminRoute(method: string, path: string): boolean {
-  if (method === "GET" && SAFE_GET_PATHS.has(path)) {
-    return false;
-  }
-
-  return path.startsWith("/api/");
-}
-
 export const requireAdminToken: RequestHandler = (req, res, next) => {
-  const configuredToken = getConfiguredAdminToken();
+  const configuredToken = getConfiguredSystemToken();
   if (!configuredToken) {
     res.status(503).json({ error: "Admin token is not configured" });
     return;

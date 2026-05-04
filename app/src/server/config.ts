@@ -6,7 +6,7 @@ import type { AppConfig } from "../shared/types.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const CONFIG_PATH = process.env.VANTAGE_CONFIG_PATH ?? path.resolve(__dirname, "../../config.json");
+const CONFIG_PATH = process.env.VANTAGE_CONFIG_PATH ?? path.resolve(process.cwd(), "config.json");
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));

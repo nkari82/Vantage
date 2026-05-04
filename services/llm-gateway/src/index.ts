@@ -7,7 +7,9 @@ const backendBase = process.env.VANTAGE_BACKEND_URL ?? "http://127.0.0.1:18080";
 const upstreamBase = process.env.VANTAGE_UPSTREAM_URL ?? "http://127.0.0.1:8000";
 const listenPort = Number(process.env.VANTAGE_LLM_GATEWAY_PORT ?? 8080);
 const autoStart = (process.env.VANTAGE_AUTO_START_VLLM ?? "true") === "true";
-const adminToken = process.env.VANTAGE_ADMIN_TOKEN?.trim() ?? "";
+const llmGatewayToken = process.env.VANTAGE_LLM_GATEWAY_TOKEN?.trim()
+  ?? process.env.VANTAGE_SYSTEM_TOKEN?.trim()
+  ?? "x";
 
 const app = express();
 
@@ -18,8 +20,8 @@ app.get("/health", (_req, res) => {
 async function postBackend(path: string): Promise<void> {
   const url = `${backendBase}${path}`;
   const headers = new Headers({ "content-type": "application/json" });
-  if (adminToken) {
-    headers.set("authorization", `Bearer ${adminToken}`);
+  if (llmGatewayToken) {
+    headers.set("authorization", `Bearer ${llmGatewayToken}`);
   }
 
   const response = await fetch(url, {
@@ -38,6 +40,10 @@ function proxyToUpstream(req: express.Request, res: express.Response): void {
   const upstreamUrl = new URL(`${upstreamBase}${req.originalUrl}`);
   const isHttps = upstreamUrl.protocol === "https:";
   const transport = isHttps ? https : http;
+
+  const startTime = Date.now();
+  let firstTokenTime = 0;
+  let tokens = 0;
 
   const proxyReq = transport.request(
     {
@@ -58,6 +64,35 @@ function proxyToUpstream(req: express.Request, res: express.Response): void {
           res.setHeader(key, value as string | string[]);
         }
       });
+
+      proxyRes.on("data", (chunk) => {
+        if (firstTokenTime === 0) {
+          firstTokenTime = Date.now();
+          console.log(`[Metrics] TTFL: ${firstTokenTime - startTime}ms`);
+        }
+
+        const lines = chunk.toString().split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const content = line.substring(6);
+            if (content === '[DONE]') continue;
+            try {
+              const json = JSON.parse(content);
+              if (json.usage && json.usage.total_tokens) {
+                tokens = json.usage.total_tokens;
+              }
+            } catch (e) {
+              // 무시
+            }
+          }
+        }
+      });
+
+      proxyRes.on("end", () => {
+        const duration = (Date.now() - startTime) / 1000;
+        console.log(`[Metrics] Total Tokens: ${tokens}, TPS: ${(tokens / duration).toFixed(2)}`);
+      });
+
       proxyRes.pipe(res);
     },
   );
