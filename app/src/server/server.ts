@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_PATH, loadConfig } from "./config.js";
 import type { AppConfig, Ak620StatusView, GpuStatus, PowerMode, SystemMetrics, SystemStatus } from "../shared/types.js";
+import { getSystemController } from "./controller-factory.js";
 import {
   applyLowPowerEnhancements,
   applyPowerMode,
@@ -16,12 +17,14 @@ import { appendMetric } from "./storage.js";
 import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
 import { createSystemRouter } from "./api/system.js";
-import { isAdminRoute, requireAdminToken } from "./security.js";
+import { getConfiguredSystemToken, isAdminRoute, requireAdminToken } from "./security.js";
 
+const controller = getSystemController();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? path.resolve(__dirname, "../client");
+const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? path.resolve(__dirname, "../../../client");
 const dashboardIndexPath = path.join(dashboardDistDir, "index.html");
-const powerTracker = new PowerTracker(path.resolve(__dirname, "../../data"));
+const runtimeDataDir = path.resolve(process.cwd(), "data");
+const powerTracker = new PowerTracker(runtimeDataDir);
 
 let powerHistory: { mode: PowerMode; timestamp: number }[] = [];
 const MAX_HISTORY = 50;
@@ -62,7 +65,33 @@ app.use((req, res, next) => {
 });
 
 let config = loadConfig();
-let currentMode: PowerMode = "ADAPTIVE";
+const SYSTEM_STATE_PATH = process.env.VANTAGE_SYSTEM_STATE_PATH ?? path.join(runtimeDataDir, "system-state.json");
+
+function loadCurrentMode(): PowerMode {
+  try {
+    if (fs.existsSync(SYSTEM_STATE_PATH)) {
+      const raw = fs.readFileSync(SYSTEM_STATE_PATH, 'utf8');
+      const state = JSON.parse(raw);
+      if (state.currentMode && ['DEFAULT', 'LOW_POWER', 'STANDARD_250', 'STANDARD_280', 'TURBO', 'ADAPTIVE'].includes(state.currentMode)) {
+        return state.currentMode as PowerMode;
+      }
+    }
+  } catch (err) {
+    console.error('[server] failed to load system state, using DEFAULT:', err);
+  }
+  return 'DEFAULT';
+}
+
+function saveCurrentMode(mode: PowerMode): void {
+  try {
+    const state = { currentMode: mode, lastUpdated: Date.now() };
+    fs.writeFileSync(SYSTEM_STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[server] failed to save system state:', err);
+  }
+}
+
+let currentMode: PowerMode = loadCurrentMode();
 let lastUsedAt: number | null = null;
 let llmGatewayEnabled = config.llmGateway.enabled;
 let adaptiveTransitionInProgress = false;
@@ -81,6 +110,29 @@ function saveConfig(mutator: (draft: AppConfig) => void): AppConfig {
 }
 
 function makeAk620View(gpuTemp: number): Ak620StatusView {
+  const statePath = path.join(runtimeDataDir, "ak620-state.json");
+  try {
+    if (fs.existsSync(statePath)) {
+      const raw = fs.readFileSync(statePath, "utf8");
+      const state = JSON.parse(raw) as {
+        connected: boolean;
+        currentTarget: string;
+        barLevel: number;
+        temperatureC: number;
+      };
+      return {
+        connected: state.connected,
+        currentTarget: state.currentTarget as "CPU" | "GPU0" | "GPU1",
+        barLevel: state.barLevel as 1 | 2 | 3,
+        temperatureC: gpuTemp,
+        refreshIntervalSeconds: config.ak620.refreshIntervalSeconds,
+        minRefreshInterval: config.ak620.minRefreshInterval,
+        maxRefreshInterval: config.ak620.maxRefreshInterval,
+      };
+    }
+  } catch (err) {
+    console.error("[server] failed to read AK620 state", err);
+  }
   return {
     connected: true,
     currentTarget: "GPU0",
@@ -94,7 +146,7 @@ function makeAk620View(gpuTemp: number): Ak620StatusView {
 
 app.use("/api", createPowerRouter({
   getCurrentMode: () => currentMode,
-  setCurrentMode: (mode: PowerMode) => { currentMode = mode; },
+  setCurrentMode: (mode: PowerMode) => { currentMode = mode; saveCurrentMode(mode); },
   getPowerHistory: () => powerHistory,
   addPowerHistory: addPowerHistory,
   getConfig: () => config,
@@ -114,7 +166,9 @@ app.use("/api", createSystemRouter({
   makeAk620View: makeAk620View,
   saveConfig: saveConfig,
   powerTracker: powerTracker,
+  controller: controller,
 }));
+
 
 app.get("/api/config", (_req, res) => {
   res.json(config);
@@ -131,6 +185,15 @@ app.post("/api/config", (req, res) => {
     }
   });
   res.json({ ok: true, config });
+});
+
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username === "admin" && password === "18184444") {
+    res.json({ ok: true, token: getConfiguredSystemToken() });
+  } else {
+    res.status(401).json({ error: "Invalid credentials" });
+  }
 });
 
 app.get("/api/status", async (_req, res) => {
@@ -157,6 +220,33 @@ app.get("/api/status", async (_req, res) => {
     alerts: checkAlerts(gpus, system),
   };
   res.json(status);
+});
+
+// GET /api/system-metrics - MiniChart용 시계열 데이터 (크로스플랫폼)
+app.get("/api/system-metrics", async (_req, res) => {
+  const [gpus, system] = await Promise.all([getGpuStatus(), getSystemMetrics()]);
+  const gpu0 = gpus.find((g) => g.index === 0);
+  // 크로스플랫폼: Windows/Linux 모두 systeminformation으로 수집된 데이터 반환
+  const metrics = {
+    timestamp: Date.now(),
+    // GPU 데이터 (nvidia-smi가 없으면 0, but data exists on Windows!)
+    gpu0Power: gpu0?.powerW ?? 0,
+    gpu0Temp: gpu0?.temperatureC ?? 0,
+    gpu0Util: gpu0?.utilization ?? 0,
+    gpu0MemUsed: gpu0?.memoryUsedMiB ?? 0,
+    gpu0MemTotal: gpu0?.memoryTotalMiB ?? 0,
+    // 시스템 데이터 (systeminformation 사용 - 크로스플랫폼)
+    estimatedSystemPowerW: system.estimatedSystemPowerW ?? system.basePowerEstimateW ?? 0,
+    cpuUsagePercent: system.cpuUsagePercent ?? 0,
+    cpuPowerW: system.cpuPowerW ?? 0,
+    memoryUsedGb: system.memoryUsedGb ?? 0,
+    memoryTotalGb: system.memoryTotalGb ?? 0,
+    // 온도
+    cpuTemp: system.temperatures?.cpu_package ?? 0,
+    // 기본 전력 추정치 (Windows/Linux 공용)
+    basePowerEstimateW: system.basePowerEstimateW ?? 55,
+  };
+  res.json(metrics);
 });
 
 if (fs.existsSync(dashboardIndexPath)) {
@@ -238,4 +328,14 @@ const port = process.env.VANTAGE_BACKEND_PORT ?? process.env.PORT ?? 18080;
 app.listen(port, () => {
   console.log(`[vantage-backend] listening on ${port}`);
   console.log(`[vantage-backend] dashboard dist: ${dashboardDistDir}`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[vantage-backend] Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[vantage-backend] Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });

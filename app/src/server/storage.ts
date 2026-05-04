@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.join(__dirname, "../../data");
+const DATA_DIR = path.join(process.cwd(), "data");
 
 export function appendMetric(filename: string, data: any) {
   const filePath = path.join(DATA_DIR, filename);

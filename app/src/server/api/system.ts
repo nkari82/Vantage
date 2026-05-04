@@ -5,13 +5,50 @@ import { readMetrics } from "../storage.js";
 import type { Ak620StatusView, AppConfig } from "../../shared/types.js";
 import { PowerTracker } from "../power-tracker.js";
 
+import { ISystemController } from "@vantage/common";
+import { startStressTest, getStressStatus } from "../stress-runner.js";
+
 export function createSystemRouter(deps: {
-  getConfig: () => AppConfig;
-  makeAk620View: (gpuTemp: number) => Ak620StatusView;
+getConfig: () => AppConfig;
+makeAk620View: (gpuTemp: number) => Ak620StatusView;
   saveConfig: (mutator: (draft: AppConfig) => void) => void;
-  powerTracker: PowerTracker;
+powerTracker: PowerTracker;
+controller: ISystemController;
 }): Router {
-  const router = express.Router();
+const router = express.Router();
+
+  router.post("/system/test/cpu", async (req, res) => {
+    const duration = Number(req.body?.duration ?? 60);
+    try {
+      const result = startStressTest(deps.controller, "cpu", duration);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post("/system/test/memory", async (req, res) => {
+    const duration = Number(req.body?.duration ?? 60);
+    try {
+      const result = startStressTest(deps.controller, "memory", duration);
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.post("/system/test/memtest", async (_req, res) => {
+    try {
+      await deps.controller.rebootToMemtest();
+      res.json({ ok: true, message: "Rebooting to Memtest86..." });
+    } catch (e) {
+      res.status(500).json({ error: (e as Error).message });
+    }
+  });
+
+  router.get("/system/test/status", (_req, res) => {
+    res.json(getStressStatus());
+  });
 
   router.get("/system/power-stats", (_req, res) => {
     const stats = deps.powerTracker.getStats();
@@ -60,6 +97,15 @@ export function createSystemRouter(deps: {
 
     const lines = Number(req.query.lines ?? 80);
     const safeLines = Number.isFinite(lines) ? Math.max(20, Math.min(300, lines)) : 80;
+
+    if (process.platform !== "linux") {
+      res.json({
+        service,
+        lines: ["System logs are only available on Linux hosts with journalctl."],
+        unavailable: true,
+      });
+      return;
+    }
 
     try {
       const { stdout } = await runCommand("/bin/journalctl", ["-u", service, "-n", String(safeLines), "--no-pager"]);
