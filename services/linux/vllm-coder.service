@@ -1,21 +1,20 @@
 [Unit]
 Description=Vantage vLLM Coder Service
-After=network-online.target nvidia-persistenced.service
-Wants=network-online.target
+After=network-online.target docker.service nvidia-persistenced.service
+Wants=network-online.target docker.service
 
 [Service]
 Type=simple
 User=vantage
 Group=vantage
 WorkingDirectory=/opt/vantage
+Environment=VANTAGE_VLLM_COMPOSE_FILE=/opt/vantage/services/vllm-container/docker-compose.yml
 ExecStart=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-start.sh
 ExecStop=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-stop.sh
 Restart=on-failure
 RestartSec=20
-# ... (previous content)
 TimeoutStartSec=600
 TimeoutStopSec=120
-# ...
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vllm-coder
