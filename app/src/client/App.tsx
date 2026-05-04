@@ -5,7 +5,7 @@ import { MetricBar } from "./components/MetricBar";
 import type { PowerMode, SystemStatus, PowerStats } from "../shared/types";
 import "./styles.css";
 
-const modeList: PowerMode[] = ["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"];
+const modeList: PowerMode[] = ["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280", "ADAPTIVE"];
 const services = [
   "vantage-backend.service",
   "vantage-llm-gateway.service",
@@ -291,7 +291,7 @@ export default function App() {
                 onClick={() => void runAction(() => api.setMode(mode), `${mode} 모드로 전환했습니다.`)}
               >
                 <span>{mode.replace("STANDARD_", "STD ")}</span>
-                <small>{mode === "TURBO" ? "Manual burst" : mode === "ADAPTIVE" ? "Auto idle" : "Power capped"}</small>
+                <small>{mode === "ADAPTIVE" ? "Auto idle" : mode === "DEFAULT" ? "Primary mode" : "Power capped"}</small>
               </button>
             ))}
           </div>
