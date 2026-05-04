@@ -1,4 +1,4 @@
-export type PowerMode = "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
+export type PowerMode = "DEFAULT" | "LOW_POWER" | "STANDARD_250" | "STANDARD_280" | "TURBO" | "ADAPTIVE";
 
 export interface GpuStatus {
   index: number;
@@ -10,12 +10,36 @@ export interface GpuStatus {
   utilization: number;
 }
 
+export interface FileSystemMetrics {
+  mount: string;
+  sizeGb: number;
+  usedGb: number;
+  usePercent: number;
+}
+
+export interface NetworkMetrics {
+  interface: string;
+  rxSec: number;
+  txSec: number;
+}
+
+export interface OsMetrics {
+  distro: string;
+  kernel: string;
+  uptime: number;
+}
+
 export interface SystemMetrics {
   cpuUsagePercent: number;
   cpuCoresUsagePercent: number[];
   cpuClockMhz: number;
   memoryUsedGb: number;
   memoryTotalGb: number;
+  memoryInstalledGb?: number;
+  memoryClockMhz?: number;
+  storage: FileSystemMetrics[];
+  network: NetworkMetrics[];
+  os: OsMetrics;
   cpuPowerW: number | null;
   basePowerEstimateW: number;
   estimatedSystemPowerW: number | null;
