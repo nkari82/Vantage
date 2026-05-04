@@ -1,5 +1,6 @@
 import express from "express";
 import { spawn } from "node:child_process";
+import { getActualServiceName, getDefaultTrackedServices } from "@vantage/common/service-runtime";
 
 type ServiceStatus = {
   unit: string;
@@ -11,15 +12,10 @@ type ServiceStatus = {
 const app = express();
 
 const port = Number(process.env.VANTAGE_SYSTEM_AGENT_PORT ?? 18081);
-const trackedServices = (process.env.VANTAGE_TRACKED_SERVICES ?? [
-  "vantage-backend.service",
-  "vantage-dashboard.service",
-  "vantage-ak620-agent.service",
-  "vllm-coder.service",
-  "vantage-llm-gateway.service",
-  "vantage-adaptive-engine.service",
-  "vantage-system-agent.service",
-].join(",")).split(",").map((v) => v.trim()).filter(Boolean);
+const trackedServices = (process.env.VANTAGE_TRACKED_SERVICES ?? getDefaultTrackedServices().join(","))
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
 
 function runCommand(command: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -48,7 +44,7 @@ function runCommand(command: string, args: string[]): Promise<string> {
   });
 }
 
-async function getServiceStatus(unit: string): Promise<ServiceStatus> {
+async function getLinuxServiceStatus(unit: string): Promise<ServiceStatus> {
   const output = await runCommand("/bin/systemctl", ["show", unit, "--no-page", "--property=LoadState,ActiveState,SubState"]);
   const parts = Object.fromEntries(
     output
@@ -69,6 +65,35 @@ async function getServiceStatus(unit: string): Promise<ServiceStatus> {
   };
 }
 
+async function getWindowsServiceStatus(unit: string): Promise<ServiceStatus> {
+  const actualName = getActualServiceName(unit, "win32");
+  try {
+    const output = await runCommand("sc", ["query", actualName]);
+    const running = /STATE\s*:\s*\d+\s+RUNNING/i.test(output);
+    const stopped = /STATE\s*:\s*\d+\s+STOPPED/i.test(output);
+    return {
+      unit,
+      load: "loaded",
+      active: running ? "active" : stopped ? "inactive" : "unknown",
+      sub: running ? "running" : stopped ? "stopped" : "unknown",
+    };
+  } catch (error) {
+    return {
+      unit,
+      load: "not-found",
+      active: "inactive",
+      sub: error instanceof Error ? error.message : "query failed",
+    };
+  }
+}
+
+async function getServiceStatus(unit: string): Promise<ServiceStatus> {
+  if (process.platform === "win32") {
+    return getWindowsServiceStatus(unit);
+  }
+  return getLinuxServiceStatus(unit);
+}
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "vantage-system-agent" });
 });
@@ -76,7 +101,7 @@ app.get("/health", (_req, res) => {
 app.get("/api/services/status", async (_req, res) => {
   try {
     const statuses = await Promise.all(trackedServices.map((unit) => getServiceStatus(unit)));
-    res.json({ services: statuses, count: statuses.length });
+    res.json({ services: statuses, count: statuses.length, platform: process.platform });
   } catch (error) {
     res.status(500).json({
       error: "Failed to collect service status",
