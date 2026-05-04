@@ -4,17 +4,26 @@ const backendBase = "";
 const adminTokenKey = "vantage.adminToken";
 
 function getAdminToken(): string {
-  return window.localStorage.getItem(adminTokenKey)?.trim() ?? "";
+  return window.localStorage.getItem(adminTokenKey)?.trim()
+    ?? window.sessionStorage.getItem(adminTokenKey)?.trim()
+    ?? "";
 }
 
-function setAdminToken(token: string): void {
+function setAdminToken(token: string, remember = true): void {
   const trimmed = token.trim();
-  if (trimmed) {
+  window.localStorage.removeItem(adminTokenKey);
+  window.sessionStorage.removeItem(adminTokenKey);
+
+  if (!trimmed) {
+    return;
+  }
+
+  if (remember) {
     window.localStorage.setItem(adminTokenKey, trimmed);
     return;
   }
 
-  window.localStorage.removeItem(adminTokenKey);
+  window.sessionStorage.setItem(adminTokenKey, trimmed);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -47,6 +56,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   getAdminToken,
   setAdminToken,
+  login: (username: string, password: string) => request<{ ok: true; token: string }>("/api/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  }),
   status: () => request<SystemStatus>("/api/status"),
   setMode: (mode: PowerMode) => request<ApiOk & { mode: PowerMode }>("/api/mode", {
     method: "POST",
@@ -60,6 +73,15 @@ export const api = {
   stopLlm: () => request<ApiOk>("/api/llm/stop", { method: "POST", body: "{}" }),
   touchLlm: () => request<ApiOk & { lastUsedAt: number }>("/api/llm/touch", { method: "POST", body: "{}" }),
   reboot: () => request<ApiOk>("/api/system/reboot", { method: "POST", body: "{}" }),
+  testCpu: (duration: number) => request<ApiOk>("/api/system/test/cpu", {
+    method: "POST",
+    body: JSON.stringify({ duration }),
+  }),
+  testMemory: (duration: number) => request<ApiOk>("/api/system/test/memory", {
+    method: "POST",
+    body: JSON.stringify({ duration }),
+  }),
+  memtest: () => request<ApiOk>("/api/system/test/memtest", { method: "POST", body: "{}" }),
   shutdown: () => request<ApiOk>("/api/system/shutdown", { method: "POST", body: "{}" }),
   saveAk620Interval: (seconds: number) => request<ApiOk & { refreshIntervalSeconds: number; note?: string }>("/api/ak620/refresh-interval", {
     method: "POST",
@@ -70,4 +92,10 @@ export const api = {
   systemMetrics: () => request<MetricEnvelope<SystemMetrics & { timestamp: number }>>("/api/system-metrics"),
   powerHistory: () => request<HistoryEnvelope>("/api/power-history"),
   powerStats: () => request<PowerStats>("/api/system/power-stats"),
+  stressStatus: () => request<{
+    isTesting: boolean;
+    currentTest?: 'cpu' | 'memory';
+    lastError?: string;
+    lastFinishedAt?: number;
+  }>("/api/system/test/status"),
 };

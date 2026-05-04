@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./lib/api";
 import { clampPercent, fmtNumber, fmtTs } from "./lib/format";
 import { MetricBar } from "./components/MetricBar";
-import { MiniChart } from "./components/MiniChart";
-import type { GpuStatus, PowerMode, SystemMetrics, SystemStatus, PowerStats } from "../shared/types";
+import type { PowerMode, SystemStatus, PowerStats } from "../shared/types";
 import "./styles.css";
 
-const modeList: PowerMode[] = ["LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"];
+const modeList: PowerMode[] = ["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280", "TURBO", "ADAPTIVE"];
 const services = [
   "vantage-backend.service",
   "vantage-llm-gateway.service",
@@ -27,17 +26,26 @@ function getHealth(status?: SystemStatus): "ok" | "warn" | "bad" {
 
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [gpuMetrics, setGpuMetrics] = useState<Array<GpuStatus & { timestamp: number }>>([]);
-  const [systemMetrics, setSystemMetrics] = useState<Array<SystemMetrics & { timestamp: number }>>([]);
   const [powerHistory, setPowerHistory] = useState<Array<{ mode: PowerMode; timestamp: number }>>([]);
   const [powerStats, setPowerStats] = useState<PowerStats | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [logService, setLogService] = useState(services[0]);
   const [logLines, setLogLines] = useState(80);
   const [akInterval, setAkInterval] = useState(4);
-  const [adminToken, setAdminToken] = useState(() => api.getAdminToken());
+  const [isLogin, setIsLogin] = useState(() => !api.getAdminToken());
+  const [gatewayToken, setGatewayToken] = useState(() => api.getAdminToken());
+  const [loginUser, setLoginUser] = useState("");
+  const [loginPass, setLoginPass] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stressStatus, setStressStatus] = useState<{
+    isTesting: boolean;
+    currentTest?: 'cpu' | 'memory';
+    lastError?: string;
+    lastFinishedAt?: number;
+  } | null>(null);
 
   async function refreshStatus() {
     const next = await api.status();
@@ -46,14 +54,10 @@ export default function App() {
   }
 
   async function refreshTelemetry() {
-    const [gpu, system, history, stats] = await Promise.all([
-      api.gpuMetrics(),
-      api.systemMetrics(),
+    const [history, stats] = await Promise.all([
       api.powerHistory(),
       api.powerStats(),
     ]);
-    setGpuMetrics(gpu.metrics);
-    setSystemMetrics(system.metrics);
     setPowerHistory([...history.history].reverse());
     setPowerStats(stats);
   }
@@ -62,10 +66,35 @@ export default function App() {
     const data = await api.logs(logService, logLines);
     setLogs(data.lines);
   }
+  
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      const data = await api.login(loginUser, loginPass);
+      api.setAdminToken(data.token, rememberMe);
+      setGatewayToken(data.token);
+      setIsLogin(false);
+      setLoginError(null);
+      setNotice("로그인했습니다.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
+      setLoginError(message === "Invalid credentials" ? "잘못된 사용자 이름 또는 비밀번호입니다." : message);
+    }
+  }
 
-  function saveAdminToken() {
-    api.setAdminToken(adminToken);
-    setNotice(adminToken.trim() ? "Admin token을 저장했습니다." : "Admin token을 삭제했습니다.");
+  function handleLogout() {
+    api.setAdminToken("");
+    setGatewayToken("");
+    setIsLogin(true);
+    setLoginUser("");
+    setLoginPass("");
+    setNotice("로그아웃했습니다.");
+  }
+
+  function saveGatewayToken() {
+    setGatewayToken(gatewayToken.trim() || "x");
+    api.setAdminToken(gatewayToken.trim() || "x", true);
+    setNotice((gatewayToken.trim() || "x") ? "LLM Gateway token을 저장했습니다." : "LLM Gateway token을 삭제했습니다.");
   }
 
   async function confirmDangerousAction(message: string, action: () => Promise<unknown>, success: string) {
@@ -98,9 +127,13 @@ export default function App() {
     const telemetryTimer = window.setInterval(() => {
       void refreshTelemetry().catch(() => undefined);
     }, 10_000);
+    const stressTimer = window.setInterval(() => {
+      void api.stressStatus().then(setStressStatus).catch(() => undefined);
+    }, 2_000);
     return () => {
       window.clearInterval(statusTimer);
       window.clearInterval(telemetryTimer);
+      window.clearInterval(stressTimer);
     };
   }, []);
 
@@ -113,12 +146,59 @@ export default function App() {
   const cpuPowerLabel = status?.system.cpuPowerW === null || status?.system.cpuPowerW === undefined
     ? "CPU RAPL unavailable"
     : `CPU ${fmtNumber(status.system.cpuPowerW, 1)} W`;
-  const maxGpuTemp = useMemo(() => Math.max(0, ...(status?.gpus ?? []).map((gpu) => gpu.temperatureC)), [status]);
-  const memoryPercent = status && status.system.memoryTotalGb > 0
-    ? (status.system.memoryUsedGb / status.system.memoryTotalGb) * 100
-    : 0;
-  const gpu0Metrics = gpuMetrics.filter((metric) => metric.index === 0);
+  const isWindows = status?.system.os.platform === "win32";
   const health = getHealth(status ?? undefined);
+
+  if (isLogin) {
+    return (
+      <main className="dashboard-shell">
+        <div className="aurora aurora--one" />
+        <div className="aurora aurora--two" />
+        <div className="login-container glass-card">
+          <div className="login-header">
+            <p className="eyebrow">Vantage Control Plane</p>
+            <h1>로그인</h1>
+            <p className="hero__copy">대시보드에 접속하려면 로그인하세요.</p>
+          </div>
+          <form className="login-form" onSubmit={handleLogin}>
+            {loginError && <div className="alert-card alert-card--bad">{loginError}</div>}
+            <div className="form-group">
+              <label htmlFor="username">사용자 이름</label>
+                <input
+                id="username"
+                type="text"
+                value={loginUser}
+                onChange={(e) => setLoginUser(e.target.value)}
+                placeholder="ID"
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="password">비밀번호</label>
+              <input
+                id="password"
+                type="password"
+                value={loginPass}
+                onChange={(e) => setLoginPass(e.target.value)}
+                placeholder="Password"
+              />
+            </div>
+            <div className="form-group checkbox-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                />
+                <span>로그인 유지 (Remember me)</span>
+              </label>
+            </div>
+            <button type="submit" className="login-button">로그인</button>
+          </form>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="dashboard-shell">
@@ -126,6 +206,11 @@ export default function App() {
       <div className="aurora aurora--two" />
 
       <header className="hero glass-card">
+        {!isLogin && (
+          <button className="logout-button" onClick={handleLogout} title="로그아웃">
+            로그아웃
+          </button>
+        )}
         <div>
           <p className="eyebrow">Vantage Control Plane</p>
           <h1>Dual RTX 3090 Telemetry Cockpit</h1>
@@ -137,56 +222,64 @@ export default function App() {
         </div>
       </header>
 
-      {(error || notice || (status?.alerts.length ?? 0) > 0) && (
+      {(error || notice || (status?.alerts.length ?? 0) > 0 || isWindows) && (
         <section className="alert-rail">
           {error && <div className="alert-card alert-card--bad">{error}</div>}
           {notice && <div className="alert-card alert-card--ok">{notice}</div>}
           {status?.alerts.map((alert) => <div className="alert-card alert-card--bad" key={alert}>{alert}</div>)}
+          {isWindows && (
+            <div className="alert-card alert-card--warn">
+              Windows 환경에서는 nvidia-smi, systemd 서비스等功能이 제한됩니다. GPU 데이터와 서비스 상태가 표시되지 않을 수 있습니다.
+            </div>
+          )}
         </section>
       )}
 
       <section className="summary-grid">
-        <div className="stat-card glass-card">
-          <span>Estimated Cost</span>
-          <strong>{fmtNumber(powerStats?.cost ?? 0, 0)} 원</strong>
-          <small>{fmtNumber(powerStats?.totalKwh ?? 0, 1)} kWh 이달 누적</small>
-        </div>
-        <div className="stat-card glass-card">
-          <span>Estimated System Power</span>
-          <strong>{fmtNumber(estimatedSystemPower, 1)} W</strong>
-          <small>GPU + CPU package + base estimate</small>
-        </div>
-        <div className="stat-card glass-card">
-          <span>Total GPU Power</span>
-          <strong>{fmtNumber(totalGpuPower, 1)} W</strong>
-          <small>Limit-aware live draw</small>
-        </div>
-        <div className="stat-card glass-card">
-          <span>Max GPU Temp</span>
-          <strong>{maxGpuTemp} °C</strong>
-          <small>Alert threshold protected</small>
-        </div>
-        <div className="stat-card glass-card">
-          <span>CPU Usage</span>
-          <strong>{status?.system.cpuUsagePercent ?? 0}%</strong>
-          <small>{status?.system.cpuClockMhz ?? 0} MHz average clock</small>
-        </div>
-        <div className="stat-card glass-card">
-          <span>RAM Usage</span>
-          <strong>{fmtNumber(status?.system.memoryUsedGb ?? 0, 1)} GB</strong>
-          <small>{fmtNumber(status?.system.memoryTotalGb ?? 0, 1)} GB installed</small>
-        </div>
+      </section>
+      
+      <section className="control-grid" style={{ gridTemplateColumns: "1fr 2fr", gap: "1rem" }}>
+        <article className="glass-card panel">
+          <div className="panel__head">
+            <div>
+              <p className="eyebrow">Electricity Cost</p>
+              <h2>이번 달 예상 요금</h2>
+            </div>
+          </div>
+          <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
+            <div style={{ fontSize: "2.5rem", fontWeight: "bold", color: "var(--accent-cyan)" }}>
+              {fmtNumber(powerStats?.cost ?? 0, 0)} <small style={{ fontSize: "1rem" }}>원</small>
+            </div>
+            <div style={{ marginTop: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
+              {fmtNumber(powerStats?.totalKwh ?? 0, 1)} kWh
+            </div>
+            <div style={{ marginTop: "1rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              시스템 가동 시간 기준
+            </div>
+          </div>
+        </article>
+
+        <article className="glass-card panel panel--wide">
+          <div className="panel__head">
+            <div>
+              <p className="eyebrow">Power Metrics</p>
+              <h2>System Power Breakdown</h2>
+            </div>
+          </div>
+          <div className="power-hero">
+          <small>Total</small>
+          <strong>{fmtNumber(estimatedSystemPower, 0)} W</strong>
+          </div>
+          <div className="power-breakdown">
+            <span><strong>{fmtNumber(estimatedSystemPower, 1)} W</strong> System</span>
+            <span><strong>{fmtNumber(totalGpuPower, 1)} W</strong> GPU</span>
+            <span><strong>{cpuPowerLabel}</strong> CPU</span>
+            <span><strong>{fmtNumber(status?.system.basePowerEstimateW ?? 0, 1)} W</strong> base</span>
+          </div>
+        </article>
       </section>
 
-      <section className="chart-grid">
-        <MiniChart label="System Power" unit="W" values={systemMetrics.map((metric) => metric.estimatedSystemPowerW ?? metric.basePowerEstimateW)} accent="#38bdf8" />
-        <MiniChart label="GPU0 Power" unit="W" values={gpu0Metrics.map((metric) => metric.powerW)} accent="#38bdf8" />
-        <MiniChart label="GPU0 Temp" unit="°C" values={gpu0Metrics.map((metric) => metric.temperatureC)} accent="#f59e0b" max={100} />
-        <MiniChart label="CPU Load" unit="%" values={systemMetrics.map((metric) => metric.cpuUsagePercent)} accent="#22c55e" max={100} />
-        <MiniChart label="RAM Used" unit="GB" values={systemMetrics.map((metric) => metric.memoryUsedGb)} accent="#fb7185" />
-      </section>
-
-      <section className="control-grid">
+<section className="control-grid control-grid--three">
         <article className="glass-card panel panel--wide">
           <div className="panel__head">
             <div>
@@ -212,54 +305,59 @@ export default function App() {
         <article className="glass-card panel">
           <div className="panel__head">
             <div>
-              <p className="eyebrow">Admin Access</p>
-              <h2>Secure Actions</h2>
+              <p className="eyebrow">LLM Gateway</p>
+              <h2>Gateway Control</h2>
             </div>
-            <span className={`pill ${adminToken.trim() ? "pill--green" : "pill--amber"}`}>{adminToken.trim() ? "Token set" : "Token required"}</span>
+            <span className={`pill ${status?.llmGatewayEnabled ? "pill--green" : "pill--red"}`}>
+              {status?.llmGatewayEnabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+          <div className="kv-list">
+            <span>Ready</span><strong>{status?.llmReady ? "Yes" : "No"}</strong>
+            <span>Upstream</span><strong>{status?.gateway.upstreamUrl ?? "-"}</strong>
+            <span>Listen</span><strong>{status?.gateway.listenPort ?? "-"}</strong>
+            <span>Idle Timeout</span><strong>{status?.gateway.idleTimeoutMinutes ?? "-"} min</strong>
           </div>
           <div className="token-box">
             <input
-              type="password"
-              value={adminToken}
-              placeholder="VANTAGE_ADMIN_TOKEN"
-              onChange={(event) => setAdminToken(event.target.value)}
+              type="text"
+              value={gatewayToken}
+              onChange={(event) => setGatewayToken(event.target.value)}
+              placeholder="x"
             />
-            <button onClick={saveAdminToken}>Save Token</button>
+            <button onClick={saveGatewayToken}>Save Token</button>
           </div>
-          <p className="muted-copy">전원/LLM/로그 API는 저장된 admin token을 Bearer token으로 전송합니다.</p>
-          <div className="danger-zone">
-            <button onClick={() => void confirmDangerousAction("서버를 재부팅할까요? 모든 서비스가 중단됩니다.", api.reboot, "Reboot 명령을 전송했습니다.")}>Restart System</button>
-            <button onClick={() => void confirmDangerousAction("서버를 종료할까요? 원격 접속이 끊깁니다.", api.shutdown, "Shutdown 명령을 전송했습니다.")}>Shutdown</button>
+          <p className="muted-copy">LLM Gateway 기본 토큰은 x이며, 필요하면 여기서 덮어쓸 수 있습니다.</p>
+          <div className="button-row">
+            <button onClick={() => void runAction(() => api.setGatewayEnabled(!(status?.llmGatewayEnabled ?? false)), status?.llmGatewayEnabled ? "LLM Gateway를 비활성화했습니다." : "LLM Gateway를 활성화했습니다.")}>{status?.llmGatewayEnabled ? "Disable Gateway" : "Enable Gateway"}</button>
+            <button onClick={() => void runAction(() => api.touchLlm(), "LLM Gateway keepalive를 전송했습니다.")}>Touch</button>
+            <button onClick={() => void runAction(() => api.startLlm(), "vLLM 시작 명령을 전송했습니다.")}>Start vLLM</button>
+            <button onClick={() => void runAction(() => api.stopLlm(), "vLLM 중지 명령을 전송했습니다.")}>Stop vLLM</button>
           </div>
         </article>
-      </section>
 
-      <section className="control-grid">
         <article className="glass-card panel">
           <div className="panel__head">
             <div>
-              <p className="eyebrow">LLM Gateway</p>
-              <h2>{status?.llmReady ? "vLLM Running" : "vLLM Standby"}</h2>
+              <p className="eyebrow">Admin Access</p>
+              <h2>Secure Actions</h2>
             </div>
-            <label className="switch">
-              <input
-                type="checkbox"
-                checked={Boolean(status?.gateway.enabled)}
-                onChange={(event) => void runAction(() => api.setGatewayEnabled(event.target.checked), "Gateway 설정을 변경했습니다.")}
-              />
-              <span />
-            </label>
+            <span className="pill pill--green">Login active</span>
           </div>
-          <div className="kv-list">
-            <span>Upstream</span><strong>{status?.gateway.upstreamUrl ?? "-"}</strong>
-            <span>Port</span><strong>{status?.gateway.listenPort ?? "-"}</strong>
-            <span>Idle Remaining</span><strong>{status?.gateway.idleRemainingSeconds ?? 0}s</strong>
-            <span>Last Request</span><strong>{fmtTs(status?.gateway.lastUsedAt)}</strong>
-          </div>
-          <div className="button-row">
-            <button onClick={() => void runAction(api.startLlm, "vLLM 시작 명령을 전송했습니다.")}>Start</button>
-            <button onClick={() => void runAction(api.stopLlm, "vLLM 중지 명령을 전송했습니다.")}>Stop</button>
-            <button onClick={() => void runAction(api.touchLlm, "LLM activity를 갱신했습니다.")}>Touch</button>
+          <p className="muted-copy">로그인 후 보호된 작업은 내부적으로 인증되어 전송됩니다.</p>
+          <div className="danger-zone">
+            <button onClick={() => void confirmDangerousAction("서버를 재부팅할까요? 모든 서비스가 중단됩니다.", api.reboot, "Reboot 명령을 전송했습니다.")}>Restart System</button>
+            <button onClick={() => void confirmDangerousAction("서버를 종료할까요? 원격 접속이 끊깁니다.", api.shutdown, "Shutdown 명령을 전송했습니다.")}>Shutdown</button>
+            <button onClick={() => void runAction(() => api.testCpu(60), "CPU 스트레스 테스트 시작 (60s)")}>CPU Stress Test</button>
+            <button onClick={() => void runAction(() => api.testMemory(60), "RAM 스트레스 테스트 시작 (60s)")}>RAM Stress Test</button>
+            {stressStatus?.isTesting && (
+              <div className="stress-status">
+                <span className="stress-indicator" /> {stressStatus.currentTest?.toUpperCase()} 테스트 실행 중...
+              </div>
+            )}
+            {stressStatus?.lastError && (
+              <div className="stress-error">테스트 오류: {stressStatus.lastError}</div>
+            )}
           </div>
         </article>
       </section>
@@ -283,13 +381,11 @@ export default function App() {
         </article>
 
         <article className="glass-card panel">
+          {!status?.system && <p className="empty">시스템 데이터를 불러올 수 없습니다. systeminformation 라이브러리를 확인하세요.</p>}
           <div className="panel__head"><h2>System Core</h2><span className="pill pill--green">{status?.system.cpuCoresUsagePercent.length ?? 0} cores</span></div>
-          <MetricBar label="CPU" value={status?.system.cpuUsagePercent ?? 0} detail={cpuPowerLabel} tone="green" />
-          <MetricBar label="RAM" value={memoryPercent} detail={`${fmtNumber(status?.system.memoryUsedGb ?? 0, 1)} / ${fmtNumber(status?.system.memoryTotalGb ?? 0, 1)} GB`} tone={memoryPercent > 85 ? "red" : "amber"} />
-          <div className="power-breakdown">
-            <span><strong>{fmtNumber(totalGpuPower, 1)} W</strong> GPU</span>
-            <span><strong>{status?.system.cpuPowerW === null || status?.system.cpuPowerW === undefined ? "N/A" : `${fmtNumber(status.system.cpuPowerW, 1)} W`}</strong> CPU</span>
-            <span><strong>{fmtNumber(status?.system.basePowerEstimateW ?? 0, 1)} W</strong> base</span>
+          <div className="memory-details">
+            <small>Installed: {status?.system.memoryInstalledGb ?? 0} GB</small>
+            <small>Speed: {status?.system.memoryClockMhz ?? 0} MHz</small>
           </div>
           <div className="core-grid">
             {(status?.system.cpuCoresUsagePercent ?? []).map((usage, index) => (
@@ -304,18 +400,20 @@ export default function App() {
         </article>
 
         <article className="glass-card panel">
-          <div className="panel__head"><h2>AK620 Display</h2><span className={`pill ${status?.ak620.connected ? "pill--green" : "pill--red"}`}>{status?.ak620.connected ? "Connected" : "Offline"}</span></div>
-          <div className="ak-dial"><span>{status?.ak620.temperatureC ?? 0}°</span><small>{status?.ak620.currentTarget ?? "GPU0"}</small></div>
-          <label className="range-label">Refresh interval <strong>{akInterval}s</strong></label>
-          <input
-            className="range"
-            type="range"
-            min={status?.ak620.minRefreshInterval ?? 1}
-            max={status?.ak620.maxRefreshInterval ?? 60}
-            value={akInterval}
-            onChange={(event) => setAkInterval(Number(event.target.value))}
-          />
-          <button onClick={() => void runAction(() => api.saveAk620Interval(akInterval), "AK620 refresh interval을 저장했습니다.")}>Apply Interval</button>
+          <div className="panel__head"><h2>System Resources</h2></div>
+          <div className="kv-list">
+            <span>OS</span><strong>{status?.system.os.distro ?? "unknown"}</strong>
+            <span>Kernel</span><strong>{status?.system.os.kernel ?? "unknown"}</strong>
+            <span>Uptime</span><strong>{Math.floor((status?.system.os.uptime ?? 0) / 3600)}h</strong>
+          </div>
+          <div className="stack">
+            {status?.system.storage.map(s => (
+                <div key={s.mount}>
+                    <div className="metric-bar__label"><span>{s.mount}</span><strong>{s.usePercent}%</strong></div>
+                    <MetricBar label={s.mount} value={s.usePercent} detail={`${s.usedGb}/${s.sizeGb} GB`} tone="cyan" />
+                </div>
+            ))}
+          </div>
         </article>
       </section>
 
@@ -336,6 +434,7 @@ export default function App() {
         <article className="glass-card panel">
           <div className="panel__head"><h2>Power Timeline</h2><span className="pill pill--amber">latest first</span></div>
           <div className="timeline">
+            {powerHistory.length === 0 && <p className="empty">모드 변경 기록이 없습니다. 모드를 변경하면 타임라인이 표시됩니다.</p>}
             {powerHistory.map((entry) => (
               <div className="timeline__item" key={`${entry.mode}-${entry.timestamp}`}>
                 <span />
