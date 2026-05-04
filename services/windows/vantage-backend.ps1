@@ -1,15 +1,13 @@
-# Vantage Backend Windows Service Installation Script (using NSSM)
-# Prerequisites: NSSM (https://nssm.cc/) installed and in PATH
+param(
+  [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+  [string]$InstallRoot = "C:\opt\vantage",
+  [string]$NodeExe = "C:\Program Files\nodejs\node.exe",
+  [string]$NssmExe = "nssm.exe"
+)
 
-$ServiceName = "VantageBackend"
-$AppPath = "C:\Program Files\nodejs\node.exe"
-$AppArgs = "C:\opt\vantage\app\dist\server\server.js"
-$WorkingDir = "C:\opt\vantage\app"
+$installer = Join-Path $PSScriptRoot "install-vantage.ps1"
+if (-not (Test-Path $installer)) {
+  throw "install-vantage.ps1 not found next to vantage-backend.ps1"
+}
 
-nssm install $ServiceName $AppPath $AppArgs
-nssm set $ServiceName AppDirectory $WorkingDir
-nssm set $ServiceName Description "Vantage Backend Service"
-nssm set $ServiceName Start SERVICE_AUTO_START
-nssm start $ServiceName
-
-Write-Host "Vantage Backend Service installed and started."
+& $installer -ProjectRoot $ProjectRoot -InstallRoot $InstallRoot -NodeExe $NodeExe -NssmExe $NssmExe
