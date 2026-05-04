@@ -266,10 +266,6 @@ export default function App() {
               <h2>System Power Breakdown</h2>
             </div>
           </div>
-          <div className="power-hero">
-          <small>Total</small>
-          <strong>{fmtNumber(estimatedSystemPower, 0)} W</strong>
-          </div>
           <div className="power-breakdown">
             <span><strong>{fmtNumber(estimatedSystemPower, 1)} W</strong> System</span>
             <span><strong>{fmtNumber(totalGpuPower, 1)} W</strong> GPU</span>
