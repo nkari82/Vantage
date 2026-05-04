@@ -1,0 +1,32 @@
+[Unit]
+Description=Vantage Backend Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vantage
+Group=vantage
+WorkingDirectory=/opt/vantage/app
+Environment=NODE_ENV=production
+Environment=VANTAGE_BACKEND_PORT=18080
+Environment=VANTAGE_CONFIG_PATH=/opt/vantage/app/config.json
+Environment=VANTAGE_SCRIPTS_DIR=/opt/vantage/scripts
+Environment=VANTAGE_DASHBOARD_DIST=/opt/vantage/app/dist/client
+EnvironmentFile=-/etc/vantage/backend.env
+ExecStart=/usr/bin/node /opt/vantage/app/dist/server/server.js
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vantage-backend
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/vantage
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
