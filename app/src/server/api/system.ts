@@ -1,21 +1,37 @@
 import express, { Router } from "express";
+import fs from "node:fs";
 import { runCommand } from "../shell.js";
 import { getGpuStatus, MONITORED_SERVICES } from "../system-monitor.js";
 import { readMetrics } from "../storage.js";
+import { getActualServiceName, getWindowsLogFilePath } from "../service-runtime.js";
 import type { Ak620StatusView, AppConfig } from "../../shared/types.js";
 import { PowerTracker } from "../power-tracker.js";
 
 import { ISystemController } from "@vantage/common";
 import { startStressTest, getStressStatus } from "../stress-runner.js";
 
+async function readWindowsServiceLogs(service: string, safeLines: number): Promise<string[]> {
+  const logPath = getWindowsLogFilePath(service);
+  if (!fs.existsSync(logPath)) {
+    return [`No Windows log file found for ${getActualServiceName(service, "win32")} at ${logPath}`];
+  }
+
+  const content = fs.readFileSync(logPath, "utf8");
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+    .slice(-safeLines);
+}
+
 export function createSystemRouter(deps: {
-getConfig: () => AppConfig;
-makeAk620View: (gpuTemp: number) => Ak620StatusView;
+  getConfig: () => AppConfig;
+  makeAk620View: (gpuTemp: number) => Ak620StatusView;
   saveConfig: (mutator: (draft: AppConfig) => void) => void;
-powerTracker: PowerTracker;
-controller: ISystemController;
+  powerTracker: PowerTracker;
+  controller: ISystemController;
 }): Router {
-const router = express.Router();
+  const router = express.Router();
 
   router.post("/system/test/cpu", async (req, res) => {
     const duration = Number(req.body?.duration ?? 60);
@@ -84,13 +100,15 @@ const router = express.Router();
     res.json({
       ok: true,
       refreshIntervalSeconds: deps.getConfig().ak620.refreshIntervalSeconds,
-      note: "Restart vantage-ak620-agent.service to apply immediately",
+      note: process.platform === "linux"
+        ? "Restart vantage-ak620-agent.service to apply immediately"
+        : "Restart the Vantage AK620 Agent service to apply immediately",
     });
   });
 
   router.get("/logs", async (req, res) => {
     const service = String(req.query.service ?? "vantage-backend.service");
-    if (!MONITORED_SERVICES.includes(service as (typeof MONITORED_SERVICES)[number])) {
+    if (!MONITORED_SERVICES.includes(service)) {
       res.status(400).json({ error: "Unsupported service" });
       return;
     }
@@ -98,10 +116,25 @@ const router = express.Router();
     const lines = Number(req.query.lines ?? 80);
     const safeLines = Number.isFinite(lines) ? Math.max(20, Math.min(300, lines)) : 80;
 
+    if (process.platform === "win32") {
+      try {
+        const parsed = await readWindowsServiceLogs(service, safeLines);
+        res.json({ service, lines: parsed, source: "windows-log-file" });
+      } catch (error) {
+        console.error("Failed to fetch Windows logs", error);
+        res.status(500).json({
+          error: "Failed to fetch logs",
+          message: error instanceof Error ? error.message : "Windows log read failed",
+          service,
+        });
+      }
+      return;
+    }
+
     if (process.platform !== "linux") {
       res.json({
         service,
-        lines: ["System logs are only available on Linux hosts with journalctl."],
+        lines: ["System logs are only available on Linux journalctl or Windows Vantage log files."],
         unavailable: true,
       });
       return;
@@ -113,7 +146,7 @@ const router = express.Router();
         .split("\n")
         .map((line) => line.trimEnd())
         .filter((line) => line.length > 0);
-      res.json({ service, lines: parsed });
+      res.json({ service, lines: parsed, source: "journalctl" });
     } catch (error) {
       console.error("Failed to fetch logs", error);
       res.status(500).json({
@@ -126,26 +159,26 @@ const router = express.Router();
 
   router.post("/system/reboot", async (_req, res) => {
     try {
-      await runCommand("/bin/systemctl", ["reboot"]);
+      await deps.controller.restartSystem();
       res.json({ ok: true });
     } catch (error) {
       console.error("Failed to reboot system", error);
       res.status(500).json({
         error: "Failed to reboot system",
-        message: "systemctl command failed",
+        message: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });
 
   router.post("/system/shutdown", async (_req, res) => {
     try {
-      await runCommand("/bin/systemctl", ["poweroff"]);
+      await deps.controller.shutdownSystem();
       res.json({ ok: true });
     } catch (error) {
       console.error("Failed to shutdown system", error);
       res.status(500).json({
         error: "Failed to shutdown system",
-        message: "systemctl command failed",
+        message: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });

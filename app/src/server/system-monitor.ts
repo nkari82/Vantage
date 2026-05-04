@@ -3,14 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { runCommand } from "./shell.js";
 import { loadConfig } from "./config.js";
+import { getMonitoredServiceEntries } from "./service-runtime.js";
 import type { GpuStatus, SystemMetrics } from "../shared/types.js";
 
-export const MONITORED_SERVICES = [
-  "vantage-backend.service",
-  "vantage-llm-gateway.service",
-  "vllm-coder.service",
-  "vantage-ak620-agent.service",
-] as const;
+export const MONITORED_SERVICES = getMonitoredServiceEntries().map((entry) => entry.logical) as readonly string[];
 
 const POWER_CAP_ROOT = "/sys/class/powercap";
 const DEFAULT_BASE_SYSTEM_POWER_W = 55;
@@ -45,7 +41,6 @@ function readCpuPackageEnergyMicroJoules(): number | null {
   for (const dir of hwmonDirs) {
     const namePath = path.join(hwmonPath, dir, "name");
     if (!fs.existsSync(namePath)) continue;
-    // const driverName = fs.readFileSync(namePath, "utf8").trim();
   }
 
   if (!fs.existsSync(POWER_CAP_ROOT)) {
@@ -82,6 +77,10 @@ function sampleCpuPowerW(cpuUsagePercent: number): number | null {
 }
 
 function sampleRaplCpuPowerW(): number | null {
+  if (process.platform !== "linux") {
+    return null;
+  }
+
   const energyMicroJoules = readCpuPackageEnergyMicroJoules();
   if (energyMicroJoules === null) {
     lastRaplSample = null;
@@ -124,63 +123,65 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
   let cpuUsagePercent: any = 0;
 
   try {
-    // CPU 정보 수집 (systeminformation 활용)
     const load = await si.currentLoad();
     const cpu = await si.cpu();
     const temp = await si.cpuTemperature();
 
     cpuUsagePercent = Number(load.currentLoad);
     cpuPowerW = sampleRaplCpuPowerW() ?? sampleCpuPowerW(cpuUsagePercent as number);
-    const cpuClock = cpu.speed ? Number.parseFloat(String(cpu.speed)) * 1000 : 0; // GHz to MHz
-    const coresUsage = load.cpus.map(c => Math.round(c.load));
+    const cpuClock = cpu.speed ? Number.parseFloat(String(cpu.speed)) * 1000 : 0;
+    const coresUsage = load.cpus.map((c) => Math.round(c.load));
 
     const mem = await si.mem();
     const memLayout = await si.memLayout();
-    const installedGb = memLayout.reduce((sum, m) => sum + (m.size / 1024 / 1024 / 1024), 0);
-    const avgClock = memLayout.length > 0 
+    const installedGb = memLayout.reduce((sum, m) => sum + m.size / 1024 / 1024 / 1024, 0);
+    const avgClock = memLayout.length > 0
       ? Math.round(memLayout.reduce((sum, m) => sum + (m.clockSpeed || 0), 0) / memLayout.length)
       : 0;
-      
-    const fs = await si.fsSize();
+
+    const fsSizes = await si.fsSize();
     const net = await si.networkStats();
     const os = await si.osInfo();
     const time = si.time();
 
-    const storage = fs.map(f => ({
-        mount: f.mount,
-        sizeGb: Number.parseFloat((f.size / 1024 / 1024 / 1024).toFixed(1)),
-        usedGb: Number.parseFloat((f.used / 1024 / 1024 / 1024).toFixed(1)),
-        usePercent: f.use
+    const storage = fsSizes.map((f) => ({
+      mount: f.mount,
+      sizeGb: Number.parseFloat((f.size / 1024 / 1024 / 1024).toFixed(1)),
+      usedGb: Number.parseFloat((f.used / 1024 / 1024 / 1024).toFixed(1)),
+      usePercent: f.use,
     }));
 
-    const network = net.map(n => ({
-        interface: n.iface,
-        rxSec: n.rx_sec ?? 0,
-        txSec: n.tx_sec ?? 0
+    const network = net.map((n) => ({
+      interface: n.iface,
+      rxSec: n.rx_sec ?? 0,
+      txSec: n.tx_sec ?? 0,
     }));
 
     const osMetrics = {
-        distro: os.distro,
-        kernel: os.kernel,
-        uptime: time.uptime
+      distro: os.distro,
+      kernel: os.kernel,
+      uptime: time.uptime,
     };
 
-    // CPU/전체 온도 정보 수집 (systeminformation 활용)
     const temperatures: Record<string, number> = {};
-    if (temp.main !== null) temperatures["cpu_package"] = temp.main;
+    if (temp.main !== null) temperatures.cpu_package = temp.main;
     if (temp.cores) {
-      temp.cores.forEach((t, i) => temperatures[`core_${i}`] = t);
+      temp.cores.forEach((value, index) => {
+        temperatures[`core_${index}`] = value;
+      });
     }
-    
+
     const serviceStatus: Record<string, string> = {};
+    const monitoredEntries = getMonitoredServiceEntries();
     try {
-      const serviceList = await si.services(MONITORED_SERVICES.join(","));
-      for (const service of serviceList) {
-        serviceStatus[service.name] = service.running ? "active" : "inactive";
+      const serviceList = await si.services(monitoredEntries.map((entry) => entry.actual).join(","));
+      const statusByActualName = new Map(serviceList.map((service) => [service.name, service.running ? "active" : "inactive"]));
+      for (const entry of monitoredEntries) {
+        serviceStatus[entry.logical] = statusByActualName.get(entry.actual) ?? "inactive";
       }
     } catch {
-      for (const serviceName of MONITORED_SERVICES) {
-        serviceStatus[serviceName] = "inactive";
+      for (const entry of monitoredEntries) {
+        serviceStatus[entry.logical] = "inactive";
       }
     }
 
@@ -220,7 +221,7 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
       basePowerEstimateW,
       estimatedSystemPowerW: Number.parseFloat((cpuPowerW + basePowerEstimateW).toFixed(1)),
       temperatures: {},
-      serviceStatus: Object.fromEntries(MONITORED_SERVICES.map((service) => [service, "unknown"])),
+      serviceStatus: Object.fromEntries(getMonitoredServiceEntries().map((entry) => [entry.logical, "unknown"])),
       degraded: true,
       degradedReason: "System metrics collection failed",
     };
