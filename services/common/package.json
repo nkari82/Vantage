@@ -3,5 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "./src/system-bridge.ts",
-  "types": "./src/system-bridge.ts"
+  "types": "./src/system-bridge.ts",
+  "exports": {
+    ".": "./src/system-bridge.ts",
+    "./service-runtime": "./src/service-runtime.ts"
+  }
 }

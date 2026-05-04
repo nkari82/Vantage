@@ -9,6 +9,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@vantage/common": "file:../common",
     "express": "^4.19.2"
   },
   "devDependencies": {
