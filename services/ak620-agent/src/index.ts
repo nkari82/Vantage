@@ -7,7 +7,8 @@ import { readTemperatureSnapshot } from "./sensors.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const BACKEND_CONFIG_PATH = process.env.VANTAGE_CONFIG_PATH ?? path.resolve(__dirname, "../../../apps/backend/config.json");
+const BACKEND_CONFIG_PATH = process.env.VANTAGE_CONFIG_PATH ?? path.resolve(__dirname, "../../../app/config.json");
+const STATE_PATH = process.env.AK620_STATE_PATH ?? path.resolve(__dirname, "../../../app/data/ak620-state.json");
 
 function loadRefreshInterval(): number {
   const env = process.env.AK620_REFRESH_INTERVAL;
@@ -31,6 +32,10 @@ function loadRefreshInterval(): number {
 async function main(): Promise<void> {
   const refreshIntervalSeconds = loadRefreshInterval();
   const device = await openAk620Device();
+  if (!device) {
+    console.log("[ak620-agent] AK620 hardware not detected. Exiting.");
+    process.exit(0);
+  }
   const cycle = new DisplayCycle();
 
   // eslint-disable-next-line no-console
@@ -41,6 +46,11 @@ async function main(): Promise<void> {
     const state = cycle.update(device, temps, refreshIntervalSeconds);
     // eslint-disable-next-line no-console
     console.log(`[ak620-agent] ${state.currentTarget} ${state.temperatureC}C connected=${state.connected}`);
+    try {
+      fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), "utf8");
+    } catch (err) {
+      console.error("[ak620-agent] failed to write state", err);
+    }
   }, refreshIntervalSeconds * 1000);
 }
 

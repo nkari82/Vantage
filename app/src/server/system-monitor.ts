@@ -1,6 +1,8 @@
+import si from "systeminformation";
 import fs from "node:fs";
 import path from "node:path";
 import { runCommand } from "./shell.js";
+import { loadConfig } from "./config.js";
 import type { GpuStatus, SystemMetrics } from "../shared/types.js";
 
 export const MONITORED_SERVICES = [
@@ -12,10 +14,20 @@ export const MONITORED_SERVICES = [
 
 const POWER_CAP_ROOT = "/sys/class/powercap";
 const DEFAULT_BASE_SYSTEM_POWER_W = 55;
+const DEFAULT_CPU_IDLE_POWER_W = 15;
+const DEFAULT_CPU_MAX_POWER_W = 100;
 let lastRaplSample: { energyMicroJoules: number; timestampMs: number } | null = null;
+let hasLoggedNvidiaSmiFailure = false;
 
 function getBasePowerEstimateW(): number {
-  const parsed = Number(process.env.VANTAGE_BASE_SYSTEM_POWER_W ?? DEFAULT_BASE_SYSTEM_POWER_W);
+  const configBasePower = (() => {
+    try {
+      return loadConfig().powerTracking.basePowerEstimateW;
+    } catch {
+      return undefined;
+    }
+  })();
+  const parsed = Number(process.env.VANTAGE_BASE_SYSTEM_POWER_W ?? configBasePower ?? DEFAULT_BASE_SYSTEM_POWER_W);
   if (!Number.isFinite(parsed)) {
     return DEFAULT_BASE_SYSTEM_POWER_W;
   }
@@ -33,8 +45,7 @@ function readCpuPackageEnergyMicroJoules(): number | null {
   for (const dir of hwmonDirs) {
     const namePath = path.join(hwmonPath, dir, "name");
     if (!fs.existsSync(namePath)) continue;
-
-    const driverName = fs.readFileSync(namePath, "utf8").trim();
+    // const driverName = fs.readFileSync(namePath, "utf8").trim();
   }
 
   if (!fs.existsSync(POWER_CAP_ROOT)) {
@@ -61,25 +72,42 @@ function readCpuPackageEnergyMicroJoules(): number | null {
   return total > 0 ? total : null;
 }
 
-function sampleCpuPowerW(cpuUsagePercent: number | null): number {
-  const raplEnergy = readCpuPackageEnergyMicroJoules();
-  const timestampMs = Date.now();
-  
-  if (raplEnergy !== null) {
-    const previous = lastRaplSample;
-    lastRaplSample = { energyMicroJoules: raplEnergy, timestampMs };
-    if (previous && raplEnergy >= previous.energyMicroJoules) {
-        const elapsedSeconds = (timestampMs - previous.timestampMs) / 1000;
-        if (elapsedSeconds > 0) {
-            const joules = (raplEnergy - previous.energyMicroJoules) / 1_000_000;
-            return Number.parseFloat((joules / elapsedSeconds).toFixed(1));
-        }
-    }
-    return 0;
+function sampleCpuPowerW(cpuUsagePercent: number): number | null {
+  if (cpuUsagePercent === null || cpuUsagePercent === undefined) {
+    return null;
   }
 
-  const usage = (cpuUsagePercent ?? 0) / 100;
-  return Number.parseFloat((25 + (70 * usage)).toFixed(1));
+  const estimatedCpuPowerW = DEFAULT_CPU_IDLE_POWER_W + (cpuUsagePercent / 100) * (DEFAULT_CPU_MAX_POWER_W - DEFAULT_CPU_IDLE_POWER_W);
+  return Math.round(estimatedCpuPowerW);
+}
+
+function sampleRaplCpuPowerW(): number | null {
+  const energyMicroJoules = readCpuPackageEnergyMicroJoules();
+  if (energyMicroJoules === null) {
+    lastRaplSample = null;
+    return null;
+  }
+
+  const now = Date.now();
+  if (!lastRaplSample) {
+    lastRaplSample = { energyMicroJoules, timestampMs: now };
+    return null;
+  }
+
+  const elapsedSeconds = (now - lastRaplSample.timestampMs) / 1000;
+  const deltaMicroJoules = energyMicroJoules - lastRaplSample.energyMicroJoules;
+  lastRaplSample = { energyMicroJoules, timestampMs: now };
+
+  if (elapsedSeconds <= 0 || deltaMicroJoules <= 0) {
+    return null;
+  }
+
+  const watts = deltaMicroJoules / 1_000_000 / elapsedSeconds;
+  if (!Number.isFinite(watts)) {
+    return null;
+  }
+
+  return Number.parseFloat(watts.toFixed(1));
 }
 
 export function withEstimatedSystemPower(gpus: GpuStatus[], system: SystemMetrics): SystemMetrics {
@@ -93,66 +121,80 @@ export function withEstimatedSystemPower(gpus: GpuStatus[], system: SystemMetric
 export async function getSystemMetrics(): Promise<SystemMetrics> {
   const basePowerEstimateW = getBasePowerEstimateW();
   let cpuPowerW: number | null = null;
-  let cpuUsagePercent = 0;
+  let cpuUsagePercent: any = 0;
 
   try {
-    const { stdout: mpstat } = await runCommand("mpstat", ["-P", "ALL", "1", "1"]);
-    const lines = mpstat.split("\n");
+    // CPU 정보 수집 (systeminformation 활용)
+    const load = await si.currentLoad();
+    const cpu = await si.cpu();
+    const temp = await si.cpuTemperature();
 
-    let avgUsage = 0;
-    const coresUsage: number[] = [];
+    cpuUsagePercent = Number(load.currentLoad);
+    cpuPowerW = sampleRaplCpuPowerW() ?? sampleCpuPowerW(cpuUsagePercent as number);
+    const cpuClock = cpu.speed ? Number.parseFloat(String(cpu.speed)) * 1000 : 0; // GHz to MHz
+    const coresUsage = load.cpus.map(c => Math.round(c.load));
 
-    for (const line of lines) {
-      if (line.includes("all")) {
-        const parts = line.trim().split(/\s+/);
-        const idle = Number.parseFloat(parts[parts.length - 1] ?? "100");
-        avgUsage = 100 - idle;
-      } else if (line.match(/^\d{2}:\d{2}:\d{2}/) && !line.includes("CPU")) {
-        const parts = line.trim().split(/\s+/);
-        if (parts[1] !== "all") {
-          const idle = Number.parseFloat(parts[parts.length - 1] ?? "100");
-          coresUsage.push(Math.round(100 - idle));
-        }
-      }
+    const mem = await si.mem();
+    const memLayout = await si.memLayout();
+    const installedGb = memLayout.reduce((sum, m) => sum + (m.size / 1024 / 1024 / 1024), 0);
+    const avgClock = memLayout.length > 0 
+      ? Math.round(memLayout.reduce((sum, m) => sum + (m.clockSpeed || 0), 0) / memLayout.length)
+      : 0;
+      
+    const fs = await si.fsSize();
+    const net = await si.networkStats();
+    const os = await si.osInfo();
+    const time = si.time();
+
+    const storage = fs.map(f => ({
+        mount: f.mount,
+        sizeGb: Number.parseFloat((f.size / 1024 / 1024 / 1024).toFixed(1)),
+        usedGb: Number.parseFloat((f.used / 1024 / 1024 / 1024).toFixed(1)),
+        usePercent: f.use
+    }));
+
+    const network = net.map(n => ({
+        interface: n.iface,
+        rxSec: n.rx_sec ?? 0,
+        txSec: n.tx_sec ?? 0
+    }));
+
+    const osMetrics = {
+        distro: os.distro,
+        kernel: os.kernel,
+        uptime: time.uptime
+    };
+
+    // CPU/전체 온도 정보 수집 (systeminformation 활용)
+    const temperatures: Record<string, number> = {};
+    if (temp.main !== null) temperatures["cpu_package"] = temp.main;
+    if (temp.cores) {
+      temp.cores.forEach((t, i) => temperatures[`core_${i}`] = t);
     }
     
-    cpuUsagePercent = avgUsage;
-    cpuPowerW = sampleCpuPowerW(avgUsage);
-
-    const { stdout: cpuInfo } = await runCommand("grep", ["cpu MHz", "/proc/cpuinfo"]);
-    const clockMatch = cpuInfo.match(/cpu MHz\s+:\s+(\d+\.\d+)/);
-    const cpuClock = clockMatch ? Number.parseFloat(clockMatch[1]) : 0;
-
-    const { stdout: memInfo } = await runCommand("free", ["-m"]);
-    const memMatch = memInfo.match(/Mem:\s+(\d+)\s+(\d+)/);
-    const totalMemGb = memMatch ? Number.parseFloat(memMatch[1]) / 1024 : 0;
-    const usedMemGb = memMatch ? Number.parseFloat(memMatch[2]) / 1024 : 0;
-
-    const { stdout: sensors } = await runCommand("sensors", ["-A"]);
-    const temperatures: Record<string, number> = {};
-    for (const line of sensors.split("\n")) {
-      const match = line.match(/^(.+?):\s+\+(\d+\.\d+)°C/);
-      if (match) {
-        temperatures[match[1].trim().replace(/\s+/g, "_")] = Number.parseFloat(match[2]);
-      }
-    }
-
     const serviceStatus: Record<string, string> = {};
-    for (const service of MONITORED_SERVICES) {
-      try {
-        const { stdout } = await runCommand("/bin/systemctl", ["is-active", service]);
-        serviceStatus[service] = stdout.trim();
-      } catch {
-        serviceStatus[service] = "inactive";
+    try {
+      const serviceList = await si.services(MONITORED_SERVICES.join(","));
+      for (const service of serviceList) {
+        serviceStatus[service.name] = service.running ? "active" : "inactive";
+      }
+    } catch {
+      for (const serviceName of MONITORED_SERVICES) {
+        serviceStatus[serviceName] = "inactive";
       }
     }
 
     return {
-      cpuUsagePercent: Math.round(avgUsage),
+      cpuUsagePercent: Math.round(cpuUsagePercent),
       cpuCoresUsagePercent: coresUsage,
       cpuClockMhz: Math.round(cpuClock),
-      memoryUsedGb: Number.parseFloat(usedMemGb.toFixed(1)),
-      memoryTotalGb: Number.parseFloat(totalMemGb.toFixed(1)),
+      memoryUsedGb: Number.parseFloat((mem.used / 1024 / 1024 / 1024).toFixed(1)),
+      memoryTotalGb: Number.parseFloat((mem.total / 1024 / 1024 / 1024).toFixed(1)),
+      memoryInstalledGb: Number.parseFloat(installedGb.toFixed(1)),
+      memoryClockMhz: avgClock,
+      storage,
+      network,
+      os: osMetrics,
       cpuPowerW,
       basePowerEstimateW,
       estimatedSystemPowerW: cpuPowerW === null ? basePowerEstimateW : Number.parseFloat((cpuPowerW + basePowerEstimateW).toFixed(1)),
@@ -162,13 +204,18 @@ export async function getSystemMetrics(): Promise<SystemMetrics> {
     };
   } catch (error) {
     console.error("Failed to get system metrics", error);
-    cpuPowerW = sampleCpuPowerW(0);
+    cpuPowerW = 0;
     return {
       cpuUsagePercent: 0,
       cpuCoresUsagePercent: [],
       cpuClockMhz: 0,
       memoryUsedGb: 0,
       memoryTotalGb: 0,
+      memoryInstalledGb: 0,
+      memoryClockMhz: 0,
+      storage: [],
+      network: [],
+      os: { distro: "unknown", kernel: "unknown", uptime: 0 },
       cpuPowerW,
       basePowerEstimateW,
       estimatedSystemPowerW: Number.parseFloat((cpuPowerW + basePowerEstimateW).toFixed(1)),
@@ -205,7 +252,11 @@ export async function getGpuStatus(): Promise<GpuStatus[]> {
         utilization: util,
       };
     });
-  } catch {
+  } catch (error) {
+    if (!hasLoggedNvidiaSmiFailure) {
+      hasLoggedNvidiaSmiFailure = true;
+      console.warn("[system-monitor] nvidia-smi unavailable; GPU telemetry disabled", error instanceof Error ? error.message : error);
+    }
     return [];
   }
 }
