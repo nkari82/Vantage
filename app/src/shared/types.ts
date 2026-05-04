@@ -68,11 +68,85 @@ export interface Ak620StatusView {
   maxRefreshInterval: number;
 }
 
+export type SteamQueueJobStatus = "queued" | "processing" | "completed" | "failed";
+
+export interface SteamQueueSummary {
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
+}
+
+export interface SteamRequestSnapshot {
+  method: string;
+  path: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface SteamResultSnapshot {
+  statusCode: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+export interface SteamQueueJob {
+  jobId: string;
+  createdAt: number;
+  updatedAt: number;
+  status: SteamQueueJobStatus;
+  requestSnapshot: SteamRequestSnapshot;
+  resultSnapshot: SteamResultSnapshot | null;
+  error: string | null;
+  idempotencyKey: string | null;
+  payloadHash: string;
+  ttlExpiresAt: number;
+}
+
+export interface SteamSessionState {
+  active: boolean;
+  startedAt: number | null;
+  lastUpdatedAt: number;
+  watchdogExpiresAt: number | null;
+  replayRequestedAt: number | null;
+}
+
+export interface SteamSessionStartResponse {
+  ok: true;
+  steamSessionActive: boolean;
+  steamSessionStartedAt: number;
+  queueSummary: SteamQueueSummary;
+  idempotent: boolean;
+}
+
+export interface SteamSessionEndResponse {
+  ok: true;
+  steamSessionActive: boolean;
+  steamSessionEndedAt: number;
+  queueSummary: SteamQueueSummary;
+  replayRequested: boolean;
+}
+
+export interface SteamQueueEnqueueResponse {
+  ok: true;
+  jobId: string;
+  status: SteamQueueJobStatus;
+  deduped: boolean;
+}
+
+export interface QueueJobStatus {
+  ok: true;
+  job: SteamQueueJob;
+}
+
 export interface SystemStatus {
   mode: PowerMode;
   llmGatewayEnabled: boolean;
   llmReady: boolean;
   lastUsedAt: number | null;
+  steamSessionActive: boolean;
+  steamSessionStartedAt: number | null;
+  queueSummary: SteamQueueSummary;
   gpus: GpuStatus[];
   system: SystemMetrics;
   gateway: GatewayStatusView;
