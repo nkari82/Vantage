@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import fs from "node:fs";
 import path from "node:path";
@@ -42,7 +43,72 @@ import {
 
 const controller = getSystemController();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? path.resolve(__dirname, "../../../client");
+const repoRootDir = path.resolve(__dirname, "../../..");
+const isDevServer = process.argv[1]?.endsWith(path.join("src", "server", "server.ts")) ?? false;
+
+function loadEnvFile(filePath: string): boolean {
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+
+  const raw = fs.readFileSync(filePath, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+
+  return true;
+}
+
+function ensureDevAuthDefaults(): void {
+  if (!isDevServer) {
+    return;
+  }
+
+  const envCandidates = [
+    process.env.VANTAGE_ENV_FILE,
+    path.join(repoRootDir, ".env.vantage.local"),
+    path.join(repoRootDir, ".env.vantage"),
+    path.join(repoRootDir, "backend.env"),
+    path.join(repoRootDir, ".env"),
+  ].filter((value): value is string => Boolean(value));
+
+  envCandidates.forEach((candidate) => {
+    loadEnvFile(candidate);
+  });
+
+  process.env.VANTAGE_LLM_GATEWAY_TOKEN ??= "x";
+
+  if (!process.env.VANTAGE_SYSTEM_TOKEN) {
+    process.env.VANTAGE_SYSTEM_TOKEN = "vantage-dev-token";
+  }
+
+  if (!process.env.VANTAGE_ADMIN_USERNAME || !process.env.VANTAGE_ADMIN_PASSWORD_HASH) {
+    const salt = Buffer.from("vantage-dev-salt");
+    const hash = crypto.scryptSync("18184444", salt, 64);
+    process.env.VANTAGE_ADMIN_USERNAME = process.env.VANTAGE_ADMIN_USERNAME ?? "admin";
+    process.env.VANTAGE_ADMIN_PASSWORD_HASH = `scrypt$${salt.toString("hex")}$${hash.toString("hex")}`;
+    console.warn("[vantage-backend] dev auth defaults enabled (admin / 18184444). Override via .env.vantage.local or VANTAGE_* env vars.");
+  }
+}
+
+ensureDevAuthDefaults();
+
+const defaultDashboardDistDir = path.resolve(__dirname, "../../dist/client");
+const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? defaultDashboardDistDir;
 const dashboardIndexPath = path.join(dashboardDistDir, "index.html");
 const runtimeDataDir = path.resolve(process.cwd(), "data");
 const powerTracker = new PowerTracker(runtimeDataDir);
@@ -312,6 +378,8 @@ if (fs.existsSync(dashboardIndexPath)) {
 
     res.sendFile(dashboardIndexPath);
   });
+} else if (isDevServer) {
+  console.log("[vantage-backend] dashboard dist not found in dev mode; expecting Vite dev server on :5173");
 } else {
   console.warn(`[vantage-backend] dashboard dist not found: ${dashboardDistDir}`);
 }
