@@ -10,10 +10,10 @@ if ([string]::IsNullOrWhiteSpace($nodeExe)) {
   $nodeExe = "node.exe"
 }
 
-$serverEntry = Join-Path $installRoot "app\dist\app\src\server\server.js"
-if (-not (Test-Path $serverEntry)) {
-  throw "Backend entry not found: $serverEntry"
+$entry = Join-Path $installRoot "services\llm-gateway\dist\index.js"
+if (-not (Test-Path $entry)) {
+  throw "LLM gateway entry not found: $entry"
 }
 
-& $nodeExe $serverEntry
+& $nodeExe $entry
 exit $LASTEXITCODE
