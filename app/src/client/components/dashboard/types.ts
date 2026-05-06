@@ -125,6 +125,7 @@ export interface DashboardActions {
   refreshLogs: () => void;
   setConfig: (next: AppConfig) => void;
   saveConfig: () => Promise<void>;
+  applyDirectLink: () => Promise<void>;
   restartService: (service: string) => Promise<unknown>;
   runAction: (action: () => Promise<unknown>, success: string) => Promise<void>;
   confirmDangerousAction: (message: string, action: () => Promise<unknown>, success: string) => Promise<void>;

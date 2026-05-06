@@ -347,6 +347,20 @@ export default function App() {
     }
   }
 
+  async function applyDirectLink() {
+    try {
+      setIsSavingConfig(true);
+      setError(null);
+      await api.applyDirectLink();
+      setNotice("직결 NIC 설정을 적용했습니다.");
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "직결 NIC 설정을 적용하지 못했습니다.");
+    } finally {
+      setIsSavingConfig(false);
+    }
+  }
+
   async function runAction(action: () => Promise<unknown>, success: string) {
     try {
       setError(null);
@@ -675,6 +689,7 @@ export default function App() {
       setConfigDraft(next);
     },
     saveConfig: saveSettingsConfig,
+    applyDirectLink,
     restartService: (service: string) => api.restartService(service),
     runAction,
     confirmDangerousAction,

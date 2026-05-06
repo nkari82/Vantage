@@ -1,6 +1,7 @@
 import type {
   ApiOk,
   AppConfig,
+  DirectLinkStatusView,
   HistoryEnvelope,
   LogEnvelope,
   MetricEnvelope,
@@ -167,6 +168,7 @@ export const api = {
     method: "POST",
     body: JSON.stringify(nextConfig),
   }),
+  applyDirectLink: () => request<ApiOk & { status: DirectLinkStatusView }>("/api/system/direct-link/apply", { method: "POST", body: "{}" }),
   logs: (service: string, lines: number, query = "", level: "all" | "debug" | "info" | "warn" | "error" = "all") => request<LogEnvelope>(`/api/logs?service=${encodeURIComponent(service)}&lines=${encodeURIComponent(lines)}&query=${encodeURIComponent(query)}&level=${encodeURIComponent(level)}`),
   gpuMetrics: () => request<MetricEnvelope<GpuStatus & { timestamp: number }>>("/api/gpu-metrics"),
   systemMetrics: () => request<MetricEnvelope<SystemMetrics & { timestamp: number }>>("/api/system-metrics"),

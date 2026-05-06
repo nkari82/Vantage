@@ -1,13 +1,15 @@
-import type { AppConfig, PowerMode } from "../../../../shared/types";
+import type { AppConfig, DirectLinkStatusView, PowerMode } from "../../../../shared/types";
 
 const runtimeModes: Array<Exclude<PowerMode, "ADAPTIVE">> = ["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280"];
 const governorOptions = ["powersave", "ondemand", "performance"] as const;
 
 interface SettingsSectionProps {
   config: AppConfig | null;
+  directLinkStatus: DirectLinkStatusView | null;
   isSaving: boolean;
   onConfigChange: (next: AppConfig) => void;
   onSave: () => void;
+  onApplyDirectLink: () => void;
 }
 
 const fallbackConfig: AppConfig = {
@@ -15,6 +17,16 @@ const fallbackConfig: AppConfig = {
     refreshIntervalSeconds: 4,
     minRefreshInterval: 1,
     maxRefreshInterval: 60,
+  },
+  directLink: {
+    enabled: false,
+    interfaceName: "",
+    localIp: "10.77.0.1",
+    peerIp: "10.77.0.2",
+    subnetMask: "255.255.255.0",
+    mtu: 9000,
+    autoApply: false,
+    lastAppliedAt: null,
   },
   lowPowerMode: {
     gpuPowerLimitW: 60,
@@ -71,6 +83,10 @@ function normalizeConfig(config: AppConfig): AppConfig {
       ...fallbackConfig.ak620,
       ...(config.ak620 ?? {}),
     },
+    directLink: {
+      ...fallbackConfig.directLink,
+      ...(config.directLink ?? {}),
+    },
     lowPowerMode: {
       ...fallbackConfig.lowPowerMode,
       ...(config.lowPowerMode ?? {}),
@@ -111,7 +127,7 @@ function normalizeConfig(config: AppConfig): AppConfig {
   };
 }
 
-export function SettingsSection({ config, isSaving, onConfigChange, onSave }: SettingsSectionProps) {
+export function SettingsSection({ config, directLinkStatus, isSaving, onConfigChange, onSave, onApplyDirectLink }: SettingsSectionProps) {
   if (!config) {
     return (
       <section className="glass-card panel panel--section settings-empty">
@@ -143,6 +159,16 @@ export function SettingsSection({ config, isSaving, onConfigChange, onSave }: Se
       ...safeConfig,
       ak620: {
         ...safeConfig.ak620,
+        [key]: value,
+      },
+    });
+  };
+
+  const updateDirectLink = <K extends keyof AppConfig["directLink"]>(key: K, value: AppConfig["directLink"][K]) => {
+    onConfigChange({
+      ...safeConfig,
+      directLink: {
+        ...safeConfig.directLink,
         [key]: value,
       },
     });
@@ -257,6 +283,73 @@ export function SettingsSection({ config, isSaving, onConfigChange, onSave }: Se
               <input type="checkbox" checked={safeConfig.llmGateway.autoStopVllm} onChange={(event) => updateGateway("autoStopVllm", event.target.checked)} />
               <span>Auto stop vLLM</span>
             </label>
+          </div>
+        </article>
+
+        <article className="glass-card panel panel--section settings-panel">
+          <div className="panel__head">
+            <div>
+              <p className="eyebrow">Dedicated NIC</p>
+              <h2>Direct Link</h2>
+            </div>
+            <span className={`pill ${safeConfig.directLink.enabled ? (directLinkStatus?.needsAttention ? "pill--amber" : "pill--green") : "pill--red"}`}>
+              {!safeConfig.directLink.enabled ? "Disabled" : directLinkStatus?.linkState === "up" ? "Link Up" : "Needs Check"}
+            </span>
+          </div>
+          <div className="settings-grid-fields">
+            <div className="form-group">
+              <label htmlFor="direct-link-interface">NIC Name</label>
+              <input id="direct-link-interface" type="text" value={safeConfig.directLink.interfaceName} onChange={(event) => updateDirectLink("interfaceName", event.target.value)} placeholder="Ethernet 2 / enp6s0" />
+            </div>
+            <div className="form-group">
+              <label htmlFor="direct-link-local-ip">Host Local IP</label>
+              <input id="direct-link-local-ip" type="text" value={safeConfig.directLink.localIp} onChange={(event) => updateDirectLink("localIp", event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="direct-link-peer-ip">Peer PC IP</label>
+              <input id="direct-link-peer-ip" type="text" value={safeConfig.directLink.peerIp} onChange={(event) => updateDirectLink("peerIp", event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="direct-link-subnet">Subnet Mask</label>
+              <input id="direct-link-subnet" type="text" value={safeConfig.directLink.subnetMask} onChange={(event) => updateDirectLink("subnetMask", event.target.value)} />
+            </div>
+            <div className="form-group">
+              <label htmlFor="direct-link-mtu">MTU</label>
+              <input id="direct-link-mtu" type="number" value={safeConfig.directLink.mtu} onChange={(event) => updateDirectLink("mtu", Number(event.target.value))} min={576} />
+            </div>
+            <div className="form-group settings-panel--full">
+              <label>Detected Candidate NICs</label>
+              <div className="settings-candidate-list">
+                {directLinkStatus?.candidateInterfaces?.length
+                  ? directLinkStatus.candidateInterfaces.map((candidate) => (
+                    <button key={candidate} type="button" className={`settings-candidate-chip ${safeConfig.directLink.interfaceName.trim().toLowerCase() === candidate.trim().toLowerCase() ? "settings-candidate-chip--active" : ""}`} onClick={() => updateDirectLink("interfaceName", candidate)}>
+                      {candidate}
+                    </button>
+                  ))
+                  : <span className="empty">후보 NIC를 아직 찾지 못했습니다.</span>}
+              </div>
+            </div>
+          </div>
+          <div className="settings-toggle-grid">
+            <label className="checkbox-group">
+              <input type="checkbox" checked={safeConfig.directLink.enabled} onChange={(event) => updateDirectLink("enabled", event.target.checked)} />
+              <span>Enable direct PC link</span>
+            </label>
+            <label className="checkbox-group">
+              <input type="checkbox" checked={safeConfig.directLink.autoApply} onChange={(event) => updateDirectLink("autoApply", event.target.checked)} />
+              <span>Auto apply on save</span>
+            </label>
+          </div>
+          <div className="kv-list kv-list--compact">
+            <span>Current Interface</span><strong>{directLinkStatus?.actualInterfaceName ?? "not matched"}</strong>
+            <span>Current IPv4</span><strong>{directLinkStatus?.localIp ?? "unassigned"}</strong>
+            <span>Link State</span><strong>{directLinkStatus?.linkState ?? "unknown"}</strong>
+            <span>Speed</span><strong>{directLinkStatus?.speedMbps ? `${directLinkStatus.speedMbps} Mbps` : "unknown"}</strong>
+            <span>Last Applied</span><strong>{directLinkStatus?.lastAppliedAt ? new Date(directLinkStatus.lastAppliedAt).toLocaleString() : "not yet"}</strong>
+          </div>
+          {directLinkStatus?.note && <p className="muted-copy settings-note">{directLinkStatus.note}</p>}
+          <div className="button-row">
+            <button type="button" onClick={onApplyDirectLink} disabled={isSaving || !safeConfig.directLink.enabled}>Apply Direct Link Now</button>
           </div>
         </article>
 

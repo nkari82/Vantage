@@ -790,6 +790,29 @@ input[type='password'] {
 .settings-panel select {
   width: 100%;
 }
+.settings-candidate-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+.settings-candidate-chip {
+  min-height: 36px;
+  padding: 0.48rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(138, 124, 255, 0.24);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: none;
+}
+.settings-candidate-chip:hover {
+  box-shadow: none;
+}
+.settings-candidate-chip--active {
+  border-color: rgba(121, 213, 255, 0.5);
+  background: rgba(121, 213, 255, 0.12);
+}
+.settings-candidate-chip--readonly {
+  cursor: default;
+}
 
 .steam-panel { display: flex; flex-direction: column; gap: 0.9rem; }
 .steam-panel__hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }

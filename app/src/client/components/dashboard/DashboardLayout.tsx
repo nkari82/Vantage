@@ -202,10 +202,14 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
         {visibility.isSettingsPage && (
           <SettingsSection
             config={config}
+            directLinkStatus={status?.directLink ?? null}
             isSaving={isSavingConfig}
             onConfigChange={actions.setConfig}
             onSave={() => {
               void actions.saveConfig();
+            }}
+            onApplyDirectLink={() => {
+              void actions.applyDirectLink();
             }}
           />
         )}
