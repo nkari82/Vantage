@@ -1,4 +1,22 @@
-import type { ApiOk, HistoryEnvelope, LogEnvelope, MetricEnvelope, PowerMode, SystemMetrics, SystemStatus, GpuStatus, PowerStats } from "../../shared/types";
+import type {
+  ApiOk,
+  HistoryEnvelope,
+  LogEnvelope,
+  MetricEnvelope,
+  PowerMode,
+  SystemMetrics,
+  SystemStatus,
+  GpuStatus,
+  PowerStats,
+  SteamQueueEnqueueResponse,
+  SteamQueueJob,
+  SteamReplayRequestResponse,
+  SteamReplayStatusResponse,
+  SteamSessionEndResponse,
+  SteamSessionStartResponse,
+  SteamSessionStatusResponse,
+  QueueJobStatus,
+} from "../../shared/types";
 
 const backendBase = "";
 const adminTokenKey = "vantage.adminToken";
@@ -55,16 +73,39 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     headers,
   });
+
+  const contentType = response.headers.get("content-type") ?? "";
   const text = await response.text();
-  const data = text ? JSON.parse(text) as unknown : null;
+  const expectsJson = contentType.includes("application/json");
+  let data: unknown = null;
+
+  if (text) {
+    if (expectsJson) {
+      try {
+        data = JSON.parse(text) as unknown;
+      } catch {
+        throw new Error(`Invalid JSON response from ${path}`);
+      }
+    } else {
+      data = text;
+    }
+  }
 
   if (!response.ok) {
     const message = typeof data === "object" && data !== null && "message" in data
       ? String(data.message)
       : typeof data === "object" && data !== null && "error" in data
         ? String(data.error)
-        : `HTTP ${response.status}`;
+        : typeof data === "string" && data.trim().startsWith("<")
+          ? `Expected JSON but received HTML from ${path}`
+          : typeof data === "string" && data.trim().length > 0
+            ? data.trim()
+            : `HTTP ${response.status}`;
     throw new Error(message);
+  }
+
+  if (!expectsJson) {
+    throw new Error(`Expected JSON response from ${path}`);
   }
 
   return data as T;
@@ -80,6 +121,18 @@ export const api = {
     body: JSON.stringify({ username, password }),
   }),
   status: () => request<SystemStatus>("/api/status"),
+  steamSessionStatus: () => request<SteamSessionStatusResponse>("/api/steam/session/status"),
+  steamReplayStatus: () => request<SteamReplayStatusResponse>("/api/steam/queue/replay/status"),
+  startSteamSession: () => request<SteamSessionStartResponse>("/api/steam/session/start", { method: "POST", body: "{}" }),
+  endSteamSession: () => request<SteamSessionEndResponse>("/api/steam/session/end", { method: "POST", body: "{}" }),
+  requestSteamReplay: () => request<SteamReplayRequestResponse>("/api/steam/queue/replay/request", { method: "POST", body: "{}" }),
+  finishSteamReplay: () => request<ApiOk>("/api/steam/queue/replay/finish", { method: "POST", body: "{}" }),
+  steamQueueEnqueue: (requestSnapshot: unknown, idempotencyKey?: string) => request<SteamQueueEnqueueResponse>("/api/steam/queue/enqueue", {
+    method: "POST",
+    body: JSON.stringify({ requestSnapshot, idempotencyKey }),
+  }),
+  steamQueueJob: (jobId: string) => request<QueueJobStatus>(`/api/steam/queue/${encodeURIComponent(jobId)}`),
+  steamQueueClaim: () => request<ApiOk & { job: SteamQueueJob | null }>("/api/steam/queue/claim", { method: "POST", body: "{}" }),
   setMode: (mode: PowerMode) => request<ApiOk & { mode: PowerMode }>("/api/mode", {
     method: "POST",
     body: JSON.stringify({ mode }),
@@ -113,7 +166,7 @@ export const api = {
   powerStats: () => request<PowerStats>("/api/system/power-stats"),
   stressStatus: () => request<{
     isTesting: boolean;
-    currentTest?: 'cpu' | 'memory';
+    currentTest?: "cpu" | "memory";
     lastError?: string;
     lastFinishedAt?: number;
   }>("/api/system/test/status"),

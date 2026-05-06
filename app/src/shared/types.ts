@@ -127,6 +127,32 @@ export interface SteamSessionEndResponse {
   replayRequested: boolean;
 }
 
+export interface SteamSessionStatusResponse {
+  ok: true;
+  adaptiveMode: boolean;
+  steamSessionActive: boolean;
+  steamSessionStartedAt: number | null;
+  watchdogExpiresAt: number | null;
+  replayRequestedAt: number | null;
+  shouldReplay: boolean;
+  queueSummary: SteamQueueSummary;
+}
+
+export interface SteamReplayStatusResponse {
+  ok: true;
+  adaptiveMode: boolean;
+  shouldReplay: boolean;
+  replayRequestedAt: number | null;
+  steamSessionActive: boolean;
+  queueSummary: SteamQueueSummary;
+}
+
+export interface SteamReplayRequestResponse {
+  ok: true;
+  replayRequestedAt: number;
+  idempotent: boolean;
+}
+
 export interface SteamQueueEnqueueResponse {
   ok: true;
   jobId: string;
