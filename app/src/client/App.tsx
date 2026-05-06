@@ -1,80 +1,161 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, FormEvent } from "react";
+import { LoginView } from "./components/dashboard/LoginView";
+import { DashboardLayout } from "./components/dashboard/DashboardLayout";
+import {
+  buildPolyline,
+  getHealth,
+  getRailFromHash,
+  loginRequiredLogsMessage,
+  modeLevel,
+  railPageCopy,
+  services,
+  type RailKey,
+} from "./components/dashboard/constants";
+import type { DashboardActions, DashboardViewModel, StressStatus } from "./components/dashboard/types";
 import { api } from "./lib/api";
 import { clampPercent, fmtNumber, fmtTs } from "./lib/format";
-import { MetricBar } from "./components/MetricBar";
-import type { PowerMode, SystemStatus, PowerStats } from "../shared/types";
+import type {
+  PowerMode,
+  PowerStats,
+  SteamReplayStatusResponse,
+  SteamSessionStatusResponse,
+  SystemStatus,
+} from "../shared/types";
 import "./styles.css";
 
-const modeList: PowerMode[] = ["DEFAULT", "LOW_POWER", "STANDARD_250", "STANDARD_280", "ADAPTIVE"];
-const services = [
-  "vantage-backend.service",
-  "vantage-llm-gateway.service",
-  "vllm-coder.service",
-  "vantage-ak620-agent.service",
-];
-
-function serviceLabel(name: string): string {
-  return name.replace(".service", "").replace("vantage-", "");
+function hasAdminSession(): boolean {
+  return Boolean(api.getAdminToken());
 }
 
-function getHealth(status?: SystemStatus): "ok" | "warn" | "bad" {
-  if (!status) return "warn";
-  if (status.alerts.length > 0 || status.system.degraded) return "bad";
-  const inactive = Object.values(status.system.serviceStatus).filter((value) => value !== "active").length;
-  return inactive > 0 ? "warn" : "ok";
+function isProtectedRouteFailure(message: string): boolean {
+  return message.includes("Admin token required")
+    || message.includes("HTTP 401")
+    || message.includes("Expected JSON but received HTML from /api/");
 }
 
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
+  const [steamStatus, setSteamStatus] = useState<SteamSessionStatusResponse | null>(null);
+  const [steamReplay, setSteamReplay] = useState<SteamReplayStatusResponse | null>(null);
   const [powerHistory, setPowerHistory] = useState<Array<{ mode: PowerMode; timestamp: number }>>([]);
   const [powerStats, setPowerStats] = useState<PowerStats | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [logService, setLogService] = useState(services[0]);
+  const [logService, setLogService] = useState<string>(services[0]);
   const [logLines, setLogLines] = useState(80);
-  const [akInterval, setAkInterval] = useState(4);
   const [isLogin, setIsLogin] = useState(() => !api.getAdminToken());
-  const [gatewayToken, setGatewayToken] = useState(() => api.getGatewayToken());
+  const [gatewayToken, setGatewayToken] = useState(() => api.getGatewayToken() || "x");
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [stressStatus, setStressStatus] = useState<{
-    isTesting: boolean;
-    currentTest?: 'cpu' | 'memory';
-    lastError?: string;
-    lastFinishedAt?: number;
-  } | null>(null);
+  const [stressStatus, setStressStatus] = useState<StressStatus | null>(null);
+  const [activeRail, setActiveRail] = useState<RailKey>(() => getRailFromHash(window.location.hash));
+
+  function clearProtectedState(sessionExpired = false) {
+    setSteamStatus(null);
+    setSteamReplay(null);
+    setPowerStats(null);
+    setStressStatus(null);
+    setLogs([loginRequiredLogsMessage]);
+
+    if (sessionExpired) {
+      api.setAdminToken("");
+      setIsLogin(true);
+      setLoginUser("");
+      setLoginPass("");
+      setLoginError("세션이 만료되었거나 인증 상태가 올바르지 않습니다. 다시 로그인해 주세요.");
+      setNotice(null);
+    }
+  }
 
   async function refreshStatus() {
-    const next = await api.status();
-    setStatus(next);
-    setAkInterval(next.ak620.refreshIntervalSeconds);
+    const nextStatus = await api.status();
+    setStatus(nextStatus);
+
+    if (!hasAdminSession()) {
+      setSteamStatus(null);
+      setSteamReplay(null);
+      return;
+    }
+
+    try {
+      const [nextSteamStatus, nextReplay] = await Promise.all([
+        api.steamSessionStatus(),
+        api.steamReplayStatus(),
+      ]);
+      setSteamStatus(nextSteamStatus);
+      setSteamReplay(nextReplay);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Steam 상태를 불러오지 못했습니다.";
+      if (isProtectedRouteFailure(message)) {
+        clearProtectedState(true);
+        return;
+      }
+      setSteamStatus(null);
+      setSteamReplay(null);
+      setError(message);
+    }
   }
 
   async function refreshTelemetry() {
-    const [history, stats] = await Promise.all([
-      api.powerHistory(),
-      api.powerStats(),
-    ]);
+    const history = await api.powerHistory();
     setPowerHistory([...history.history].reverse());
-    setPowerStats(stats);
+
+    if (!hasAdminSession()) {
+      setPowerStats(null);
+      return;
+    }
+
+    try {
+      const stats = await api.powerStats();
+      setPowerStats(stats);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "전력 통계를 불러오지 못했습니다.";
+      if (isProtectedRouteFailure(message)) {
+        clearProtectedState(true);
+        return;
+      }
+      setPowerStats(null);
+      setError(message);
+    }
   }
 
   async function loadLogs() {
-    const data = await api.logs(logService, logLines);
-    setLogs(data.lines);
+    if (!hasAdminSession()) {
+      setLogs([loginRequiredLogsMessage]);
+      return;
+    }
+
+    try {
+      const data = await api.logs(logService, logLines);
+      setLogs(data.lines);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "로그를 불러오지 못했습니다.";
+      if (isProtectedRouteFailure(message)) {
+        clearProtectedState(true);
+        return;
+      }
+      setLogs([message]);
+    }
   }
-  
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
+
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
     try {
       const data = await api.login(loginUser, loginPass);
       api.setAdminToken(data.token, rememberMe);
       setIsLogin(false);
       setLoginError(null);
       setNotice("로그인했습니다.");
+      await Promise.all([
+        refreshStatus(),
+        refreshTelemetry(),
+        loadLogs(),
+        api.stressStatus().then(setStressStatus),
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
       setLoginError(message === "Invalid credentials" ? "잘못된 사용자 이름 또는 비밀번호입니다." : message);
@@ -86,22 +167,24 @@ export default function App() {
     setIsLogin(true);
     setLoginUser("");
     setLoginPass("");
+    setSteamStatus(null);
+    setSteamReplay(null);
+    setPowerStats(null);
+    setStressStatus(null);
+    setLogs([loginRequiredLogsMessage]);
     setNotice("로그아웃했습니다.");
   }
 
   function saveGatewayToken() {
     const nextGatewayToken = gatewayToken.trim();
-    setGatewayToken(nextGatewayToken);
+    const normalizedGatewayToken = nextGatewayToken || "x";
+    setGatewayToken(normalizedGatewayToken);
     api.setGatewayToken(nextGatewayToken, true);
-    setNotice("LLM Gateway token을 저장했습니다.");
-  }
-
-  async function confirmDangerousAction(message: string, action: () => Promise<unknown>, success: string) {
-    if (!window.confirm(message)) {
-      return;
-    }
-
-    await runAction(action, success);
+    setNotice(
+      normalizedGatewayToken === "x"
+        ? "LLM Gateway token 기본값(x)을 사용합니다."
+        : "LLM Gateway token을 저장했습니다.",
+    );
   }
 
   async function runAction(action: () => Promise<unknown>, success: string) {
@@ -113,6 +196,14 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     }
+  }
+
+  async function confirmDangerousAction(message: string, action: () => Promise<unknown>, success: string) {
+    if (!window.confirm(message)) {
+      return;
+    }
+
+    await runAction(action, success);
   }
 
   useEffect(() => {
@@ -127,8 +218,14 @@ export default function App() {
       void refreshTelemetry().catch(() => undefined);
     }, 10_000);
     const stressTimer = window.setInterval(() => {
+      if (!hasAdminSession()) {
+        setStressStatus(null);
+        return;
+      }
+
       void api.stressStatus().then(setStressStatus).catch(() => undefined);
     }, 2_000);
+
     return () => {
       window.clearInterval(statusTimer);
       window.clearInterval(telemetryTimer);
@@ -140,6 +237,31 @@ export default function App() {
     void loadLogs().catch(() => undefined);
   }, [logService, logLines]);
 
+  useEffect(() => {
+    const syncRailFromHash = () => {
+      const nextRail = getRailFromHash(window.location.hash);
+      setActiveRail((current) => (current === nextRail ? current : nextRail));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+
+    syncRailFromHash();
+    window.addEventListener("hashchange", syncRailFromHash);
+
+    return () => {
+      window.removeEventListener("hashchange", syncRailFromHash);
+    };
+  }, []);
+
+  function navigateToPage(page: RailKey) {
+    if (window.location.hash === `#${page}`) {
+      setActiveRail(page);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    window.location.hash = page;
+  }
+
   const totalGpuPower = useMemo(() => (status?.gpus ?? []).reduce((acc, gpu) => acc + gpu.powerW, 0), [status]);
   const estimatedSystemPower = status?.system.estimatedSystemPowerW ?? totalGpuPower;
   const cpuPowerLabel = status?.system.cpuPowerW === null || status?.system.cpuPowerW === undefined
@@ -147,313 +269,243 @@ export default function App() {
     : `CPU ${fmtNumber(status.system.cpuPowerW, 1)} W`;
   const isWindows = status?.system.os.platform === "win32";
   const health = getHealth(status ?? undefined);
+  const steamCounts = steamStatus?.queueSummary ?? status?.queueSummary ?? { queued: 0, processing: 0, completed: 0, failed: 0 };
+  const queueLoad = steamCounts.queued + steamCounts.processing;
+  const memoryPercent = status?.system.memoryTotalGb
+    ? (status.system.memoryUsedGb / status.system.memoryTotalGb) * 100
+    : 0;
+  const avgGpuTemp = status?.gpus.length
+    ? status.gpus.reduce((acc, gpu) => acc + gpu.temperatureC, 0) / status.gpus.length
+    : 0;
+  const coreBars = useMemo(
+    () => (status?.system.cpuCoresUsagePercent ?? []).map((usage) => ({
+      usage,
+      style: { "--core-height": `${Math.max(8, clampPercent(usage))}%` } as CSSProperties,
+    })),
+    [status?.system.cpuCoresUsagePercent],
+  );
+  const modeSignal = useMemo(() => {
+    const recent = powerHistory.slice(0, 8).reverse().map((entry) => modeLevel(entry.mode));
+    return recent.length > 0 ? recent : [modeLevel(status?.mode ?? "DEFAULT")];
+  }, [powerHistory, status?.mode]);
+  const cpuSignal = useMemo(() => {
+    const series = (status?.system.cpuCoresUsagePercent ?? []).slice(0, 8).filter((value) => Number.isFinite(value));
+    const fallback = status?.system.cpuUsagePercent ?? 0;
+    const nextSeries = series.length > 0 ? [...series] : [fallback];
+    while (nextSeries.length < 6) {
+      nextSeries.unshift(nextSeries[0]);
+    }
+    return nextSeries.slice(-8);
+  }, [status?.system.cpuCoresUsagePercent, status?.system.cpuUsagePercent]);
+  const thermalSignal = useMemo(() => {
+    const primaryTemps = Object.values(status?.system.temperatures ?? {}).slice(0, 8);
+    const fallbackTemps = (status?.gpus ?? []).map((gpu) => gpu.temperatureC).slice(0, 8);
+    const series = (primaryTemps.length > 0 ? primaryTemps : fallbackTemps).filter((value) => Number.isFinite(value));
+    const nextSeries = series.length > 0 ? [...series] : [avgGpuTemp];
+    while (nextSeries.length < 6) {
+      nextSeries.unshift(nextSeries[0]);
+    }
+    return nextSeries.slice(-8);
+  }, [status?.system.temperatures, status?.gpus, avgGpuTemp]);
+  const signalLabels = useMemo(() => Array.from({ length: modeSignal.length }, (_, index) => `S${index + 1}`), [modeSignal.length]);
+  const serviceEntries = Object.entries(status?.system.serviceStatus ?? {});
+  const activeServiceCount = serviceEntries.filter(([, value]) => value === "active").length;
+  const maxStorageUse = Math.max(0, ...(status?.system.storage ?? []).map((disk) => disk.usePercent));
+  const networkLoad = (status?.system.network ?? []).reduce((acc, item) => acc + item.rxSec + item.txSec, 0) / 1024 / 1024;
+  const gpuMemoryPressure = Math.max(0, ...(status?.gpus ?? []).map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100));
+  const gpuUtilizationValues = useMemo(() => (status?.gpus ?? []).map((gpu) => gpu.utilization), [status?.gpus]);
+  const vramPressureValues = useMemo(
+    () => (status?.gpus ?? []).map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100),
+    [status?.gpus],
+  );
+  const assistantInsights = useMemo(() => {
+    if (!status) {
+      return [
+        { title: "Syncing", detail: "서버 상태를 연결 중입니다.", tone: "info" as const },
+        { title: "Telemetry", detail: "실시간 시그널이 수집되면 운영 인사이트가 갱신됩니다.", tone: "info" as const },
+      ];
+    }
+
+    const notes: DashboardViewModel["assistantInsights"] = [];
+
+    if (!steamStatus?.adaptiveMode) {
+      notes.push({ title: "Steam Control", detail: "Steam 세션 제어는 ADAPTIVE 모드에서만 활성화됩니다.", tone: "warn" });
+    } else if (steamStatus.steamSessionActive) {
+      notes.push({ title: "Steam Live", detail: "세션이 활성 상태이며 종료 시 replay 플로우가 이어집니다.", tone: "ok" });
+    }
+
+    if (!status.llmGatewayEnabled) {
+      notes.push({ title: "Gateway Offline", detail: "LLM 요청 전에 Gateway enable 상태를 먼저 확인하세요.", tone: "warn" });
+    } else if (!status.llmReady) {
+      notes.push({ title: "Gateway Warm-up", detail: "Gateway는 열려 있지만 vLLM 준비 상태가 아닙니다.", tone: "info" });
+    }
+
+    if (stressStatus?.isTesting) {
+      notes.push({ title: "Stress Running", detail: `${stressStatus.currentTest ?? "system"} 테스트가 진행 중입니다.`, tone: "hot" });
+    }
+
+    if (status.alerts.length > 0) {
+      notes.push({ title: "Alerts", detail: `활성 알림 ${status.alerts.length}건을 먼저 확인하세요.`, tone: "hot" });
+    }
+
+    if (notes.length === 0) {
+      notes.push({ title: "Stable", detail: "현재 시스템은 안정 상태입니다. 모드와 Gateway 상태를 기준으로 운영하면 됩니다.", tone: "ok" });
+      notes.push({ title: "Power", detail: `예상 시스템 전력은 약 ${fmtNumber(estimatedSystemPower, 0)}W 입니다.`, tone: "info" });
+    }
+
+    return notes.slice(0, 4);
+  }, [estimatedSystemPower, status, steamStatus, stressStatus]);
+  const stageMetrics = useMemo(() => ([
+    { label: "Service Health", value: `${activeServiceCount}/${serviceEntries.length || 1}`, detail: "active runtime services" },
+    { label: "Memory Pressure", value: `${fmtNumber(memoryPercent, 0)}%`, detail: `${fmtNumber(status?.system.memoryUsedGb ?? 0, 1)} / ${fmtNumber(status?.system.memoryTotalGb ?? 0, 1)} GB` },
+    { label: "VRAM Pressure", value: `${fmtNumber(gpuMemoryPressure, 0)}%`, detail: "peak GPU memory occupancy" },
+    { label: "Network Flow", value: `${fmtNumber(networkLoad, 2)} MB/s`, detail: `storage peak ${fmtNumber(maxStorageUse, 0)}%` },
+  ]), [activeServiceCount, gpuMemoryPressure, maxStorageUse, memoryPercent, networkLoad, serviceEntries.length, status?.system.memoryTotalGb, status?.system.memoryUsedGb]);
+  const overviewStats = useMemo(() => ([
+    {
+      eyebrow: "System Power",
+      value: `${fmtNumber(estimatedSystemPower, 0)} W`,
+      delta: cpuPowerLabel,
+      icon: "◌",
+    },
+    {
+      eyebrow: "Compute Mode",
+      value: status?.mode ?? "SYNCING",
+      delta: status?.llmReady ? "vLLM ready" : "warm-up",
+      icon: "◎",
+    },
+    {
+      eyebrow: "Gateway Status",
+      value: status?.llmGatewayEnabled ? "Online" : "Paused",
+      delta: `${status?.gateway.listenPort ?? "-"} port`,
+      icon: "◈",
+    },
+    {
+      eyebrow: "Replay Queue",
+      value: `${queueLoad}`,
+      delta: `${steamCounts.completed} completed`,
+      icon: "◍",
+    },
+  ]), [cpuPowerLabel, estimatedSystemPower, queueLoad, status, steamCounts.completed]);
+  const currentPageCopy = railPageCopy[activeRail];
+  const visibility = {
+    isOverviewPage: activeRail === "overview",
+    isSignalsPage: activeRail === "signals",
+    isSteamPage: activeRail === "steam",
+    isGatewayPage: activeRail === "gateway",
+    isSystemsPage: activeRail === "systems",
+    isSettingsPage: activeRail === "settings",
+    showSignalsCompactFlow: activeRail === "signals",
+    showHeroMetrics: activeRail === "overview" || activeRail === "signals",
+    showAnalyticsPage: activeRail === "overview" || activeRail === "signals",
+    showSteamPanel: activeRail === "overview" || activeRail === "steam",
+    showGatewayPanel: activeRail === "overview" || activeRail === "gateway",
+    showCostPanel: activeRail === "overview" || activeRail === "signals",
+    showSettingsPageContent: activeRail === "overview" || activeRail === "settings",
+    showSystemsPageContent: activeRail === "overview" || activeRail === "systems",
+    showServiceHealthSection: activeRail === "overview" || activeRail === "systems",
+    showPowerTimelineSection: activeRail === "overview" || activeRail === "signals",
+    showLogsPanel: activeRail === "overview" || activeRail === "systems",
+  };
+  const focusPanelCount = [visibility.showSteamPanel, visibility.showGatewayPanel, visibility.showCostPanel].filter(Boolean).length;
+  const focusGridClassName = [
+    "focus-grid",
+    focusPanelCount === 2 ? "focus-grid--dual" : "",
+    focusPanelCount === 1 ? "focus-grid--single" : "",
+  ].filter(Boolean).join(" ");
+  const systemsGridClassName = [
+    "operations-grid",
+    "operations-grid--triple",
+  ].join(" ");
+  const utilitySectionCount = [visibility.showServiceHealthSection, visibility.showPowerTimelineSection].filter(Boolean).length;
+  const utilityGridClassName = [
+    "operations-grid",
+    utilitySectionCount === 2 ? "operations-grid--dual" : "",
+    utilitySectionCount === 1 ? "operations-grid--single" : "",
+  ].filter(Boolean).join(" ");
+  const modePolyline = buildPolyline(modeSignal);
+  const cpuPolyline = buildPolyline(cpuSignal);
+  const thermalPolyline = buildPolyline(thermalSignal);
+
+  const viewModel: DashboardViewModel = {
+    activeRail,
+    status,
+    steamStatus,
+    steamReplay,
+    powerHistory,
+    powerStats,
+    logs,
+    logService,
+    logLines,
+    gatewayToken,
+    notice,
+    error,
+    stressStatus,
+    currentPageCopy,
+    health,
+    isWindows,
+    estimatedSystemPower,
+    totalGpuPower,
+    cpuPowerLabel,
+    queueLoad,
+    memoryPercent,
+    signalLabels,
+    modePolyline,
+    cpuPolyline,
+    thermalPolyline,
+    thermalSignal,
+    gpuUtilizationValues,
+    vramPressureValues,
+    stageMetrics,
+    assistantInsights,
+    overviewStats,
+    serviceEntries,
+    activeServiceCount,
+    maxStorageUse,
+    networkLoad,
+    gpuMemoryPressure,
+    coreBars,
+    focusGridClassName,
+    systemsGridClassName,
+    utilityGridClassName,
+    visibility,
+  };
+
+  const actions: DashboardActions = {
+    navigateToPage,
+    handleLogout,
+    setGatewayToken,
+    saveGatewayToken,
+    setLogService,
+    setLogLines,
+    refreshLogs: () => {
+      void loadLogs();
+    },
+    runAction,
+    confirmDangerousAction,
+  };
 
   if (isLogin) {
     return (
-      <main className="dashboard-shell">
-        <div className="aurora aurora--one" />
-        <div className="aurora aurora--two" />
-        <div className="login-container glass-card">
-          <div className="login-header">
-            <p className="eyebrow">Vantage Control Plane</p>
-            <h1>로그인</h1>
-            <p className="hero__copy">대시보드에 접속하려면 로그인하세요.</p>
-          </div>
-          <form className="login-form" onSubmit={handleLogin}>
-            {loginError && <div className="alert-card alert-card--bad">{loginError}</div>}
-            <div className="form-group">
-              <label htmlFor="username">사용자 이름</label>
-                <input
-                id="username"
-                type="text"
-                value={loginUser}
-                onChange={(e) => setLoginUser(e.target.value)}
-                placeholder="ID"
-                autoFocus
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="password">비밀번호</label>
-              <input
-                id="password"
-                type="password"
-                value={loginPass}
-                onChange={(e) => setLoginPass(e.target.value)}
-                placeholder="Password"
-              />
-            </div>
-            <div className="form-group checkbox-group">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                />
-                <span>로그인 유지 (Remember me)</span>
-              </label>
-            </div>
-            <button type="submit" className="login-button">로그인</button>
-          </form>
-        </div>
-      </main>
+      <LoginView
+        loginError={loginError}
+        loginUser={loginUser}
+        loginPass={loginPass}
+        rememberMe={rememberMe}
+        onLogin={handleLogin}
+        onLoginUserChange={setLoginUser}
+        onLoginPassChange={setLoginPass}
+        onRememberMeChange={setRememberMe}
+      />
     );
   }
 
   return (
-    <main className="dashboard-shell">
-      <div className="aurora aurora--one" />
-      <div className="aurora aurora--two" />
-
-      <header className="hero glass-card">
-        {!isLogin && (
-          <button className="logout-button" onClick={handleLogout} title="로그아웃">
-            로그아웃
-          </button>
-        )}
-        <div>
-          <p className="eyebrow">Vantage Control Plane</p>
-          <h1>Dual RTX 3090 Telemetry Cockpit</h1>
-          <p className="hero__copy">저전력 홈서버와 고성능 LLM 서버 사이를 실시간으로 관제하고 전환합니다.</p>
-        </div>
-        <div className={`system-orb system-orb--${health}`}>
-          <span>{health.toUpperCase()}</span>
-          <strong>{status?.mode ?? "CONNECTING"}</strong>
-        </div>
-      </header>
-
-      {(error || notice || (status?.alerts.length ?? 0) > 0 || isWindows) && (
-        <section className="alert-rail">
-          {error && <div className="alert-card alert-card--bad">{error}</div>}
-          {notice && <div className="alert-card alert-card--ok">{notice}</div>}
-          {status?.alerts.map((alert) => <div className="alert-card alert-card--bad" key={alert}>{alert}</div>)}
-          {isWindows && (
-            <div className="alert-card alert-card--warn">
-              Windows 환경에서는 nvidia-smi, systemd 서비스等功能이 제한됩니다. GPU 데이터와 서비스 상태가 표시되지 않을 수 있습니다.
-            </div>
-          )}
-        </section>
-      )}
-
-      <section className="summary-grid">
-      </section>
-      
-      <section className="control-grid" style={{ gridTemplateColumns: "1fr 2fr", gap: "1rem" }}>
-        <article className="glass-card panel">
-          <div className="panel__head">
-            <div>
-              <p className="eyebrow">Electricity Cost</p>
-              <h2>이번 달 예상 요금</h2>
-            </div>
-          </div>
-          <div style={{ textAlign: "center", padding: "1.5rem 0" }}>
-            <div style={{ fontSize: "2.5rem", fontWeight: "bold", color: "var(--accent-cyan)" }}>
-              {fmtNumber(powerStats?.cost ?? 0, 0)} <small style={{ fontSize: "1rem" }}>원</small>
-            </div>
-            <div style={{ marginTop: "0.5rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
-              {fmtNumber(powerStats?.totalKwh ?? 0, 1)} kWh
-            </div>
-            <div style={{ marginTop: "1rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              시스템 가동 시간 기준
-            </div>
-          </div>
-        </article>
-
-        <article className="glass-card panel panel--wide">
-          <div className="panel__head">
-            <div>
-              <p className="eyebrow">Power Metrics</p>
-              <h2>System Power Breakdown</h2>
-            </div>
-          </div>
-          <div className="power-breakdown">
-            <span><strong>{fmtNumber(estimatedSystemPower, 1)} W</strong> System</span>
-            <span><strong>{fmtNumber(totalGpuPower, 1)} W</strong> GPU</span>
-            <span><strong>{cpuPowerLabel}</strong> CPU</span>
-            <span><strong>{fmtNumber(status?.system.basePowerEstimateW ?? 0, 1)} W</strong> base</span>
-          </div>
-        </article>
-      </section>
-
-<section className="control-grid control-grid--three">
-        <article className="glass-card panel panel--wide">
-          <div className="panel__head">
-            <div>
-              <p className="eyebrow">Power Profile</p>
-              <h2>Mode Control</h2>
-            </div>
-            <span className="pill pill--cyan">{status?.mode ?? "-"}</span>
-          </div>
-          <div className="mode-grid">
-            {modeList.map((mode) => (
-              <button
-                className={`mode-button ${status?.mode === mode ? "mode-button--active" : ""}`}
-                key={mode}
-                onClick={() => void runAction(() => api.setMode(mode), `${mode} 모드로 전환했습니다.`)}
-              >
-                <span>{mode.replace("STANDARD_", "STD ")}</span>
-                <small>{mode === "ADAPTIVE" ? "Auto idle" : mode === "DEFAULT" ? "Primary mode" : "Power capped"}</small>
-              </button>
-            ))}
-          </div>
-        </article>
-
-        <article className="glass-card panel">
-          <div className="panel__head">
-            <div>
-              <p className="eyebrow">LLM Gateway</p>
-              <h2>Gateway Control</h2>
-            </div>
-            <span className={`pill ${status?.llmGatewayEnabled ? "pill--green" : "pill--red"}`}>
-              {status?.llmGatewayEnabled ? "Enabled" : "Disabled"}
-            </span>
-          </div>
-          <div className="kv-list">
-            <span>Ready</span><strong>{status?.llmReady ? "Yes" : "No"}</strong>
-            <span>Upstream</span><strong>{status?.gateway.upstreamUrl ?? "-"}</strong>
-            <span>Listen</span><strong>{status?.gateway.listenPort ?? "-"}</strong>
-            <span>Idle Timeout</span><strong>{status?.gateway.idleTimeoutMinutes ?? "-"} min</strong>
-          </div>
-          <div className="token-box">
-            <input
-              type="text"
-              value={gatewayToken}
-              onChange={(event) => setGatewayToken(event.target.value)}
-              placeholder="Gateway token"
-            />
-            <button onClick={saveGatewayToken}>Save Token</button>
-          </div>
-          <p className="muted-copy">설치 시 생성된 LLM Gateway 내부 토큰이 필요할 때만 저장하세요.</p>
-          <div className="button-row">
-            <button onClick={() => void runAction(() => api.setGatewayEnabled(!(status?.llmGatewayEnabled ?? false)), status?.llmGatewayEnabled ? "LLM Gateway를 비활성화했습니다." : "LLM Gateway를 활성화했습니다.")}>{status?.llmGatewayEnabled ? "Disable Gateway" : "Enable Gateway"}</button>
-            <button onClick={() => void runAction(() => api.touchLlm(), "LLM Gateway keepalive를 전송했습니다.")}>Touch</button>
-            <button onClick={() => void runAction(() => api.startLlm(), "vLLM 시작 명령을 전송했습니다.")}>Start vLLM</button>
-            <button onClick={() => void runAction(() => api.stopLlm(), "vLLM 중지 명령을 전송했습니다.")}>Stop vLLM</button>
-          </div>
-        </article>
-
-        <article className="glass-card panel">
-          <div className="panel__head">
-            <div>
-              <p className="eyebrow">Admin Access</p>
-              <h2>Secure Actions</h2>
-            </div>
-            <span className="pill pill--green">Login active</span>
-          </div>
-          <p className="muted-copy">로그인 후 보호된 작업은 내부적으로 인증되어 전송됩니다.</p>
-          <div className="danger-zone">
-            <button onClick={() => void confirmDangerousAction("서버를 재부팅할까요? 모든 서비스가 중단됩니다.", api.reboot, "Reboot 명령을 전송했습니다.")}>Restart System</button>
-            <button onClick={() => void confirmDangerousAction("서버를 종료할까요? 원격 접속이 끊깁니다.", api.shutdown, "Shutdown 명령을 전송했습니다.")}>Shutdown</button>
-            <button onClick={() => void runAction(() => api.testCpu(60), "CPU 스트레스 테스트 시작 (60s)")}>CPU Stress Test</button>
-            <button onClick={() => void runAction(() => api.testMemory(60), "RAM 스트레스 테스트 시작 (60s)")}>RAM Stress Test</button>
-            {stressStatus?.isTesting && (
-              <div className="stress-status">
-                <span className="stress-indicator" /> {stressStatus.currentTest?.toUpperCase()} 테스트 실행 중...
-              </div>
-            )}
-            {stressStatus?.lastError && (
-              <div className="stress-error">테스트 오류: {stressStatus.lastError}</div>
-            )}
-          </div>
-        </article>
-      </section>
-
-      <section className="control-grid control-grid--three">
-        <article className="glass-card panel">
-          <div className="panel__head"><h2>GPU Fleet</h2><span className="pill pill--cyan">{status?.gpus.length ?? 0} cards</span></div>
-          <div className="stack">
-            {(status?.gpus ?? []).map((gpu) => {
-              const memPct = gpu.memoryTotalMiB > 0 ? (gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100 : 0;
-              return (
-                <div className="gpu-card" key={gpu.index}>
-                  <div className="gpu-card__top"><strong>GPU{gpu.index}</strong><span>{gpu.temperatureC}°C · {gpu.powerW}W</span></div>
-                  <MetricBar label="Utilization" value={gpu.utilization} tone="cyan" />
-                  <MetricBar label="VRAM" value={memPct} detail={`${gpu.memoryUsedMiB} / ${gpu.memoryTotalMiB} MiB`} tone="green" />
-                </div>
-              );
-            })}
-            {status?.gpus.length === 0 && <p className="empty">GPU 데이터 없음 - nvidia-smi 상태를 확인하세요.</p>}
-          </div>
-        </article>
-
-        <article className="glass-card panel">
-          {!status?.system && <p className="empty">시스템 데이터를 불러올 수 없습니다. systeminformation 라이브러리를 확인하세요.</p>}
-          <div className="panel__head"><h2>System Core</h2><span className="pill pill--green">{status?.system.cpuCoresUsagePercent.length ?? 0} cores</span></div>
-          <div className="memory-details">
-            <small>Installed: {status?.system.memoryInstalledGb ?? 0} GB</small>
-            <small>Speed: {status?.system.memoryClockMhz ?? 0} MHz</small>
-          </div>
-          <div className="core-grid">
-            {(status?.system.cpuCoresUsagePercent ?? []).map((usage, index) => (
-              <span key={`${index}-${usage}`} style={{ height: `${Math.max(8, clampPercent(usage))}%` }} title={`Core ${index}: ${usage}%`} />
-            ))}
-          </div>
-          <div className="temp-cloud">
-            {Object.entries(status?.system.temperatures ?? {}).slice(0, 8).map(([name, value]) => (
-              <span key={name}>{name.replace(/_/g, " ")} <strong>{value}°C</strong></span>
-            ))}
-          </div>
-        </article>
-
-        <article className="glass-card panel">
-          <div className="panel__head"><h2>System Resources</h2></div>
-          <div className="kv-list">
-            <span>OS</span><strong>{status?.system.os.distro ?? "unknown"}</strong>
-            <span>Kernel</span><strong>{status?.system.os.kernel ?? "unknown"}</strong>
-            <span>Uptime</span><strong>{Math.floor((status?.system.os.uptime ?? 0) / 3600)}h</strong>
-          </div>
-          <div className="stack">
-            {status?.system.storage.map(s => (
-                <div key={s.mount}>
-                    <div className="metric-bar__label"><span>{s.mount}</span><strong>{s.usePercent}%</strong></div>
-                    <MetricBar label={s.mount} value={s.usePercent} detail={`${s.usedGb}/${s.sizeGb} GB`} tone="cyan" />
-                </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="control-grid">
-        <article className="glass-card panel">
-          <div className="panel__head"><h2>Service Health</h2><span className="pill pill--cyan">systemd</span></div>
-          <div className="service-grid">
-            {Object.entries(status?.system.serviceStatus ?? {}).map(([name, value]) => (
-              <div className={`service-chip service-chip--${value === "active" ? "ok" : "bad"}`} key={name}>
-                <span />
-                <strong>{serviceLabel(name)}</strong>
-                <small>{value}</small>
-              </div>
-            ))}
-          </div>
-        </article>
-
-        <article className="glass-card panel">
-          <div className="panel__head"><h2>Power Timeline</h2><span className="pill pill--amber">latest first</span></div>
-          <div className="timeline">
-            {powerHistory.length === 0 && <p className="empty">모드 변경 기록이 없습니다. 모드를 변경하면 타임라인이 표시됩니다.</p>}
-            {powerHistory.map((entry) => (
-              <div className="timeline__item" key={`${entry.mode}-${entry.timestamp}`}>
-                <span />
-                <strong>{entry.mode}</strong>
-                <small>{fmtTs(entry.timestamp)}</small>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-
-      <section className="glass-card panel logs-panel">
-        <div className="panel__head">
-          <div><p className="eyebrow">Journal Tail</p><h2>System Logs</h2></div>
-          <div className="log-controls">
-            <select value={logService} onChange={(event) => setLogService(event.target.value)}>
-              {services.map((service) => <option key={service}>{service}</option>)}
-            </select>
-            <input type="number" min={20} max={300} value={logLines} onChange={(event) => setLogLines(Number(event.target.value))} />
-            <button onClick={() => void loadLogs()}>Refresh</button>
-          </div>
-        </div>
-        <pre>{logs.length > 0 ? logs.join("\n") : "loading logs..."}</pre>
-      </section>
-    </main>
+    <DashboardLayout
+      viewModel={viewModel}
+      actions={actions}
+      formatTimestamp={fmtTs}
+      formatNumber={fmtNumber}
+    />
   );
 }
