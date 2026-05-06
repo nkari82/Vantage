@@ -39,18 +39,10 @@ export class LinuxController implements ISystemController {
     }
   }
   async startService(serviceName: string): Promise<void> {
-    if (serviceName === "vllm") {
-      await runCommand("docker", ["compose", "-f", "/opt/vantage/services/vllm-container/docker-compose.yml", "up", "-d"]);
-    } else {
-      await runCommand("/bin/systemctl", ["start", serviceName]);
-    }
+    await runCommand("/bin/systemctl", ["start", serviceName]);
   }
   async stopService(serviceName: string): Promise<void> {
-    if (serviceName === "vllm") {
-      await runCommand("docker", ["compose", "-f", "/opt/vantage/services/vllm-container/docker-compose.yml", "down"]);
-    } else {
-      await runCommand("/bin/systemctl", ["stop", serviceName]);
-    }
+    await runCommand("/bin/systemctl", ["stop", serviceName]);
   }
   async isServiceActive(serviceName: string): Promise<boolean> {
     try {

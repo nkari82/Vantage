@@ -9,8 +9,8 @@ User=vantage
 Group=vantage
 WorkingDirectory=/opt/vantage
 Environment=VANTAGE_VLLM_COMPOSE_FILE=/opt/vantage/services/vllm-container/docker-compose.yml
-ExecStart=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-start.sh
-ExecStop=/usr/bin/bash /opt/vantage/scripts/vantage-vllm-stop.sh
+ExecStart=/usr/bin/docker compose -f ${VANTAGE_VLLM_COMPOSE_FILE} up
+ExecStop=/usr/bin/docker compose -f ${VANTAGE_VLLM_COMPOSE_FILE} down
 Restart=on-failure
 RestartSec=20
 TimeoutStartSec=600
