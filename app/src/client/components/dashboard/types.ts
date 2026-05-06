@@ -1,5 +1,8 @@
 import type { CSSProperties } from "react";
 import type {
+  AppConfig,
+  LogEntry,
+  LogLevelFilter,
   PowerMode,
   PowerStats,
   SteamReplayStatusResponse,
@@ -66,9 +69,16 @@ export interface DashboardViewModel {
   steamReplay: SteamReplayStatusResponse | null;
   powerHistory: Array<{ mode: PowerMode; timestamp: number }>;
   powerStats: PowerStats | null;
-  logs: string[];
+  logEntries: LogEntry[];
   logService: string;
   logLines: number;
+  logQuery: string;
+  logLevel: LogLevelFilter;
+  logSource: string | null;
+  logTotal: number;
+  logsUnavailable: boolean;
+  config: AppConfig | null;
+  isSavingConfig: boolean;
   gatewayToken: string;
   notice: string | null;
   error: string | null;
@@ -110,7 +120,12 @@ export interface DashboardActions {
   saveGatewayToken: () => void;
   setLogService: (value: string) => void;
   setLogLines: (value: number) => void;
+  setLogQuery: (value: string) => void;
+  setLogLevel: (value: LogLevelFilter) => void;
   refreshLogs: () => void;
+  setConfig: (next: AppConfig) => void;
+  saveConfig: () => Promise<void>;
+  restartService: (service: string) => Promise<unknown>;
   runAction: (action: () => Promise<unknown>, success: string) => Promise<void>;
   confirmDangerousAction: (message: string, action: () => Promise<unknown>, success: string) => Promise<void>;
 }

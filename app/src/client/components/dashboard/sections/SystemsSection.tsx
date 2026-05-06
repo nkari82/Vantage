@@ -11,12 +11,15 @@ interface SystemsSectionProps {
 }
 
 export function SystemsSection({ className, status, coreBars, memoryPercent, formatNumber }: SystemsSectionProps) {
+  const system = status?.system;
+  const gpus = status?.gpus ?? [];
+
   return (
     <section className={className}>
       <article className="glass-card panel panel--section systems-grid__primary">
-        <div className="panel__head"><h2>GPU Fleet</h2><span className="pill pill--cyan">{status?.gpus.length ?? 0} cards</span></div>
+        <div className="panel__head"><h2>GPU Fleet</h2><span className="pill pill--cyan">{gpus.length} cards</span></div>
         <div className="stack">
-          {(status?.gpus ?? []).map((gpu) => {
+          {gpus.map((gpu) => {
             const memPct = gpu.memoryTotalMiB > 0 ? (gpu.memoryUsedMiB / gpu.memoryTotalMiB) * 100 : 0;
             return (
               <div className="gpu-card" key={gpu.index}>
@@ -26,25 +29,25 @@ export function SystemsSection({ className, status, coreBars, memoryPercent, for
               </div>
             );
           })}
-          {(status?.gpus.length ?? 0) === 0 && <p className="empty">GPU 데이터 없음 - nvidia-smi 상태를 확인하세요.</p>}
+          {gpus.length === 0 && <p className="empty">GPU 데이터 없음 - nvidia-smi 상태를 확인하세요.</p>}
         </div>
       </article>
 
       <article className="glass-card panel panel--section systems-grid__secondary">
-        {!status?.system && <p className="empty">시스템 데이터를 불러올 수 없습니다. systeminformation 라이브러리를 확인하세요.</p>}
-        <div className="panel__head"><h2>System Core</h2><span className="pill pill--green">{status?.system.cpuCoresUsagePercent.length ?? 0} cores</span></div>
+        {!system && <p className="empty">시스템 데이터를 불러올 수 없습니다. systeminformation 라이브러리를 확인하세요.</p>}
+        <div className="panel__head"><h2>System Core</h2><span className="pill pill--green">{system?.cpuCoresUsagePercent?.length ?? 0} cores</span></div>
         <div className="memory-details">
-          <small>Installed: {status?.system.memoryInstalledGb ?? 0} GB</small>
-          <small>Speed: {status?.system.memoryClockMhz ?? 0} MHz</small>
+          <small>Installed: {system?.memoryInstalledGb ?? 0} GB</small>
+          <small>Speed: {system?.memoryClockMhz ?? 0} MHz</small>
         </div>
         <div className="core-grid">
           {coreBars.map(({ usage, style }, index) => (
             <span key={`${index}-${usage}`} style={style} title={`Core ${index}: ${usage}%`} />
           ))}
         </div>
-        <MetricBar label="Memory Pressure" value={memoryPercent} detail={`${formatNumber(status?.system.memoryUsedGb ?? 0, 1)} / ${formatNumber(status?.system.memoryTotalGb ?? 0, 1)} GB`} tone="amber" />
+        <MetricBar label="Memory Pressure" value={memoryPercent} detail={`${formatNumber(system?.memoryUsedGb ?? 0, 1)} / ${formatNumber(system?.memoryTotalGb ?? 0, 1)} GB`} tone="amber" />
         <div className="temp-cloud">
-          {Object.entries(status?.system.temperatures ?? {}).slice(0, 8).map(([name, value]) => (
+          {Object.entries(system?.temperatures ?? {}).slice(0, 8).map(([name, value]) => (
             <span key={name}>{name.replace(/_/g, " ")} <strong>{value}°C</strong></span>
           ))}
         </div>
@@ -53,12 +56,12 @@ export function SystemsSection({ className, status, coreBars, memoryPercent, for
       <article className="glass-card panel panel--section systems-grid__tertiary">
         <div className="panel__head"><h2>System Resources</h2></div>
         <div className="kv-list">
-          <span>OS</span><strong>{status?.system.os.distro ?? "unknown"}</strong>
-          <span>Kernel</span><strong>{status?.system.os.kernel ?? "unknown"}</strong>
-          <span>Uptime</span><strong>{Math.floor((status?.system.os.uptime ?? 0) / 3600)}h</strong>
+          <span>OS</span><strong>{system?.os?.distro ?? "unknown"}</strong>
+          <span>Kernel</span><strong>{system?.os?.kernel ?? "unknown"}</strong>
+          <span>Uptime</span><strong>{Math.floor((system?.os?.uptime ?? 0) / 3600)}h</strong>
         </div>
         <div className="stack">
-          {(status?.system.storage ?? []).map((storage) => (
+          {(system?.storage ?? []).map((storage) => (
             <div key={storage.mount}>
               <div className="metric-bar__label"><span>{storage.mount}</span><strong>{storage.usePercent}%</strong></div>
               <MetricBar label={storage.mount} value={storage.usePercent} detail={`${storage.usedGb}/${storage.sizeGb} GB`} tone="cyan" />

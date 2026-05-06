@@ -1,12 +1,12 @@
 import { api } from "../../../lib/api";
-import { modeList } from "../constants";
+import { modeList, serviceLabel, services } from "../constants";
 import type { DashboardActions, StressStatus } from "../types";
 import type { PowerMode } from "../../../../shared/types";
 
 interface OperationsSectionProps {
   currentMode: PowerMode | null | undefined;
   stressStatus: StressStatus | null;
-  actions: Pick<DashboardActions, "runAction" | "confirmDangerousAction">;
+  actions: Pick<DashboardActions, "runAction" | "confirmDangerousAction" | "restartService">;
 }
 
 export function OperationsSection({ currentMode, stressStatus, actions }: OperationsSectionProps) {
@@ -54,6 +54,29 @@ export function OperationsSection({ currentMode, stressStatus, actions }: Operat
           <button onClick={() => void actions.confirmDangerousAction("시스템을 재부팅할까요?", () => api.reboot(), "재부팅 명령을 전송했습니다.")}>Reboot</button>
           <button onClick={() => void actions.confirmDangerousAction("시스템을 종료할까요?", () => api.shutdown(), "종료 명령을 전송했습니다.")}>Shutdown</button>
         </div>
+
+        <div className="service-recovery">
+          <div className="service-recovery__head">
+            <h3>Service Recovery</h3>
+            <p className="muted-copy">헬스 체크에서 비정상으로 보이는 런타임을 즉시 다시 올릴 수 있습니다.</p>
+          </div>
+          <div className="service-recovery__grid">
+            {services.map((service) => {
+              const label = serviceLabel(service);
+              return (
+                <button
+                  className="service-recovery__button"
+                  key={service}
+                  onClick={() => void actions.runAction(() => actions.restartService(service), `${label} 서비스를 재시작했습니다.`)}
+                >
+                  <span>{label}</span>
+                  <small>{service}</small>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {stressStatus?.lastError && <div className="stress-error">{stressStatus.lastError}</div>}
       </article>
     </section>

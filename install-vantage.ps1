@@ -107,6 +107,108 @@ function Ensure-FirewallRule([string]$DisplayName, [string]$Protocol, [int[]]$Po
   }
 }
 
+function Wait-ServiceReady(
+  [string]$Name,
+  [int]$Attempts = 15,
+  [int]$DelaySeconds = 2
+) {
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -eq "Running") {
+      Write-Host "[OK] $Name is running"
+      return
+    }
+
+    Write-Host "[WAIT] $Name not running yet ($attempt/$Attempts)"
+    Start-Sleep -Seconds $DelaySeconds
+  }
+
+  Write-Warning "$Name did not reach Running state, retrying restart once"
+  Restart-Service -Name $Name -ErrorAction SilentlyContinue
+
+  for ($attempt = 1; $attempt -le 5; $attempt++) {
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -eq "Running") {
+      Write-Host "[OK] $Name recovered after restart"
+      return
+    }
+
+    Write-Host "[WAIT] $Name recovery attempt $attempt/5"
+    Start-Sleep -Seconds $DelaySeconds
+  }
+
+  throw "$Name failed to reach Running state"
+}
+
+function Wait-HttpReady(
+  [string]$Uri,
+  [string]$Label,
+  [hashtable]$Headers = @{},
+  [int]$Attempts = 15,
+  [int]$DelaySeconds = 2
+) {
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    try {
+      Invoke-RestMethod -Method Get -Uri $Uri -Headers $Headers -TimeoutSec 5 | Out-Null
+      Write-Host "[OK] $Label responded"
+      return
+    }
+    catch {
+      Write-Host "[WAIT] $Label not ready yet ($attempt/$Attempts)"
+      Start-Sleep -Seconds $DelaySeconds
+    }
+  }
+
+  throw "$Label did not become ready: $Uri"
+}
+
+function Show-ServiceDiagnostics([string[]]$ServiceNames, [string]$LogsDir) {
+  Write-Warning "Capturing service diagnostics"
+  foreach ($name in $ServiceNames) {
+    Write-Host "--- $name service ---"
+    Get-Service -Name $name -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+
+    foreach ($suffix in @(".log", ".error.log")) {
+      $logPath = Join-Path $LogsDir ($name + $suffix)
+      if (Test-Path $logPath) {
+        Write-Host "--- $logPath ---"
+        Get-Content -Path $logPath -Tail 40 -ErrorAction SilentlyContinue
+      }
+    }
+  }
+}
+
+function Invoke-PostInstallSelfCheck(
+  [string[]]$ServiceNames,
+  [string]$SystemToken,
+  [string]$LogsDir
+) {
+  try {
+    Write-Host "[verify] Checking Windows service readiness"
+    foreach ($serviceName in $ServiceNames) {
+      Wait-ServiceReady -Name $serviceName
+    }
+
+    Write-Host "[verify] Checking backend HTTP readiness"
+    try {
+      Wait-HttpReady -Uri "http://127.0.0.1:18080/health" -Label "backend health"
+    }
+    catch {
+      Write-Warning "Backend health check failed, retrying backend restart once"
+      Restart-Service -Name "VantageBackend" -ErrorAction SilentlyContinue
+      Wait-ServiceReady -Name "VantageBackend" -Attempts 8
+      Wait-HttpReady -Uri "http://127.0.0.1:18080/health" -Label "backend health" -Attempts 8
+    }
+
+    Wait-HttpReady -Uri "http://127.0.0.1:18080/api/status" -Label "backend status API" -Headers @{ Authorization = "Bearer $SystemToken" }
+    Write-Host "[OK] Post-install self-check passed"
+  }
+  catch {
+    Show-ServiceDiagnostics -ServiceNames $ServiceNames -LogsDir $LogsDir
+    throw
+  }
+}
+
 function Install-SteamStreamingStack([string]$SystemToken, [string]$EnvFilePath, [string]$HelpersDir) {
   $sunshineInstallerUrl = "https://github.com/LizardByte/Sunshine/releases/latest/download/Sunshine-Windows-AMD64-installer.exe"
   $steamInstallerUrl = "https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
@@ -177,6 +279,14 @@ $gatewayServiceScript = Join-Path $windowsServicesDir "vantage-llm-gateway.ps1"
 $ak620ServiceScript = Join-Path $windowsServicesDir "vantage-ak620-agent.ps1"
 $adaptiveServiceScript = Join-Path $windowsServicesDir "vantage-adaptive-engine.ps1"
 $systemAgentServiceScript = Join-Path $windowsServicesDir "vantage-system-agent.ps1"
+$serviceNames = @(
+  "VantageBackend",
+  "VantageAk620Agent",
+  "VllmCoder",
+  "VantageLlmGateway",
+  "VantageAdaptiveEngine",
+  "VantageSystemAgent"
+)
 
 Ensure-Directory $InstallRoot
 Ensure-Directory $envDir
@@ -280,6 +390,9 @@ if ($WithSteamStreaming) {
 else {
   Write-Host "[SKIP] Steam/Sunshine install skipped"
 }
+
+Write-Host "[verify] Post-install self-check"
+Invoke-PostInstallSelfCheck -ServiceNames $serviceNames -SystemToken $systemToken -LogsDir $logsDir
 
 Write-Host "[7/7] Summary"
 Write-Host "Installed to: $InstallRoot"

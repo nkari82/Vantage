@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { SteamQueueJob, SteamQueueJobStatus, SteamQueueSummary, SteamSessionState } from "../shared/types.js";
+import type {
+  PowerHistoryEntry,
+  SteamQueueJob,
+  SteamQueueJobStatus,
+  SteamQueueSummary,
+  SteamSessionState,
+} from "../shared/types.js";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const STEAM_QUEUE_PATH = path.join(DATA_DIR, "steam-queue.json");
@@ -127,6 +133,40 @@ export function readMetrics(filename: string, limit = 100): unknown[] {
       }
     })
     .filter((entry) => entry !== null);
+}
+
+export function appendPowerHistory(entry: PowerHistoryEntry): void {
+  ensureDataDir();
+  const filePath = path.join(DATA_DIR, "power-history.jsonl");
+  fs.appendFileSync(filePath, `${JSON.stringify(entry)}\n`, "utf8");
+}
+
+function isPowerMode(value: unknown): value is PowerHistoryEntry["mode"] {
+  return value === "DEFAULT"
+    || value === "LOW_POWER"
+    || value === "STANDARD_250"
+    || value === "STANDARD_280"
+    || value === "ADAPTIVE";
+}
+
+export function readPowerHistory(limit = 100): PowerHistoryEntry[] {
+  return readMetrics("power-history.jsonl", limit)
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const item = entry as Partial<PowerHistoryEntry>;
+      if (!isPowerMode(item.mode) || typeof item.timestamp !== "number") {
+        return null;
+      }
+
+      return {
+        mode: item.mode,
+        timestamp: item.timestamp,
+      } satisfies PowerHistoryEntry;
+    })
+    .filter((entry): entry is PowerHistoryEntry => entry !== null);
 }
 
 export function readSteamQueue(): SteamQueueJob[] {

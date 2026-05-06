@@ -89,6 +89,11 @@ export class Win32Controller implements ISystemController {
     }
   }
 
+  async restartService(serviceName: string): Promise<void> {
+    await this.stopService(serviceName);
+    await this.startService(serviceName);
+  }
+
   async isServiceActive(serviceName: string): Promise<boolean> {
     try {
       const { stdout } = await runCommand("sc", ["query", getActualServiceName(serviceName, "win32")]);

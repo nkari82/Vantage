@@ -267,11 +267,122 @@ EOF
   run_as_root chmod 0755 "$STEAM_START_HELPER" "$STEAM_END_HELPER"
 }
 
+dump_self_check_diagnostics() {
+  echo "[diagnostics] Capturing service status and recent logs"
+  for svc in "${SERVICES[@]}"; do
+    echo "--- ${svc} status ---"
+    run_as_root systemctl --no-pager --full status "$svc" || true
+    echo "--- ${svc} recent logs ---"
+    run_as_root journalctl -u "$svc" -n 40 --no-pager || true
+  done
+}
+
+wait_for_service_active() {
+  local svc="$1"
+  local attempts="${2:-15}"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "[DRY-RUN] verify service active: ${svc}"
+    return 0
+  fi
+
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if "${AS_ROOT[@]}" systemctl is-active --quiet "$svc"; then
+      echo "[OK] ${svc} is active"
+      return 0
+    fi
+    echo "[WAIT] ${svc} not active yet (${attempt}/${attempts})"
+    sleep 2
+  done
+
+  echo "[WARN] ${svc} did not become active, retrying restart once"
+  "${AS_ROOT[@]}" systemctl restart "$svc" || true
+
+  for ((attempt = 1; attempt <= 5; attempt++)); do
+    if "${AS_ROOT[@]}" systemctl is-active --quiet "$svc"; then
+      echo "[OK] ${svc} recovered after restart"
+      return 0
+    fi
+    echo "[WAIT] ${svc} recovery attempt ${attempt}/5"
+    sleep 2
+  done
+
+  echo "[ERROR] ${svc} failed to reach active state" >&2
+  return 1
+}
+
+wait_for_http_ready() {
+  local url="$1"
+  local label="$2"
+  local auth_header="${3:-}"
+  local attempts="${4:-15}"
+
+  if [[ "$DRY_RUN" == "true" ]]; then
+    echo "[DRY-RUN] verify HTTP endpoint: ${label} -> ${url}"
+    return 0
+  fi
+
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if [[ -n "$auth_header" ]]; then
+      if curl --fail --silent --show-error --max-time 5 -H "$auth_header" "$url" >/dev/null; then
+        echo "[OK] ${label} responded"
+        return 0
+      fi
+    else
+      if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null; then
+        echo "[OK] ${label} responded"
+        return 0
+      fi
+    fi
+    echo "[WAIT] ${label} not ready yet (${attempt}/${attempts})"
+    sleep 2
+  done
+
+  echo "[ERROR] ${label} did not become ready: ${url}" >&2
+  return 1
+}
+
+run_post_install_self_check() {
+  local system_token="$1"
+
+  echo "[verify] Checking core service readiness"
+  for svc in "${SERVICES[@]}"; do
+    wait_for_service_active "$svc" || {
+      dump_self_check_diagnostics
+      return 1
+    }
+  done
+
+  echo "[verify] Checking backend HTTP readiness"
+  wait_for_http_ready "http://127.0.0.1:18080/health" "backend health" || {
+    echo "[WARN] Backend health check failed, retrying backend restart once"
+    if [[ "$DRY_RUN" != "true" ]]; then
+      "${AS_ROOT[@]}" systemctl restart vantage-backend.service || true
+    fi
+    wait_for_service_active "vantage-backend.service" 8 || {
+      dump_self_check_diagnostics
+      return 1
+    }
+    wait_for_http_ready "http://127.0.0.1:18080/health" "backend health" "" 8 || {
+      dump_self_check_diagnostics
+      return 1
+    }
+  }
+
+  wait_for_http_ready "http://127.0.0.1:18080/api/status" "backend status API" "Authorization: Bearer ${system_token}" || {
+    dump_self_check_diagnostics
+    return 1
+  }
+
+  echo "[OK] Post-install self-check passed"
+}
+
 echo "[0/10] Preflight checks"
 require_cmd rsync
 require_cmd systemctl
 require_cmd bash
 require_cmd node
+require_cmd curl
 if [[ "$RUN_AS_USER_MODE" == "root" ]]; then
   require_cmd runuser
 fi
@@ -369,6 +480,9 @@ for svc in "${SERVICES[@]}"; do
   run_as_root systemctl restart "$svc"
   run_as_root systemctl --no-pager --full status "$svc"
 done
+
+echo "[verify] Post-install self-check"
+run_post_install_self_check "$SYSTEM_TOKEN"
 
 echo "Installation complete. Reboot-safe always-on services are enabled."
 echo "Admin token file: ${ADMIN_ENV_FILE}"

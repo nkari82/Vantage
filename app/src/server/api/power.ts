@@ -1,11 +1,11 @@
 import express, { Router } from "express";
 import { applyLowPowerEnhancements, applyPowerMode, stopVllmService } from "../power-controller.js";
-import type { PowerMode, AppConfig } from "../../shared/types.js";
+import type { PowerHistoryEntry, PowerMode, AppConfig } from "../../shared/types.js";
 
 export function createPowerRouter(deps: {
   getCurrentMode: () => PowerMode;
   setCurrentMode: (mode: PowerMode) => void;
-  getPowerHistory: () => { mode: PowerMode; timestamp: number }[];
+  getPowerHistory: () => PowerHistoryEntry[];
   addPowerHistory: (mode: PowerMode) => void;
   getConfig: () => AppConfig;
   markLlmActivity: () => void;
@@ -49,7 +49,7 @@ export function createPowerRouter(deps: {
     }
   });
 
-  router.get("/power-history", async (req, res) => {
+  router.get("/power-history", async (_req, res) => {
     const history = deps.getPowerHistory();
     res.json({ history, total: history.length });
   });

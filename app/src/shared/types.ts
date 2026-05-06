@@ -256,6 +256,16 @@ export interface PowerStats {
   cost: number;
 }
 
+export type LogLevel = "debug" | "info" | "warn" | "error" | "unknown";
+export type LogLevelFilter = "all" | Exclude<LogLevel, "unknown">;
+
+export interface LogEntry {
+  raw: string;
+  message: string;
+  level: LogLevel;
+  timestamp: number | null;
+}
+
 export interface PowerHistoryEntry {
   mode: PowerMode;
   timestamp: number;
@@ -274,6 +284,22 @@ export interface HistoryEnvelope {
 export interface LogEnvelope {
   service: string;
   lines: string[];
+  entries: LogEntry[];
+  total: number;
+  source?: string;
+  unavailable?: boolean;
+  filters: {
+    lines: number;
+    query: string;
+    level: LogLevelFilter;
+  };
+}
+
+export interface ServiceActionEnvelope {
+  ok: true;
+  service: string;
+  active: boolean;
+  note?: string;
 }
 
 export interface ApiOk {

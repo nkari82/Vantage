@@ -698,6 +698,98 @@ input[type='password'] {
 .muted-copy { color: var(--muted); font-size: 0.84rem; line-height: 1.7; }
 .danger-zone { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; margin-top: 1rem; }
 .danger-zone button { border-color: rgba(255,126,158,0.32); background: var(--danger-bg); }
+.service-recovery {
+  margin-top: 1.2rem;
+  display: grid;
+  gap: 0.9rem;
+}
+.service-recovery__head {
+  display: grid;
+  gap: 0.35rem;
+}
+.service-recovery__head h3 {
+  margin: 0;
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 1.05rem;
+}
+.service-recovery__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.service-recovery__button {
+  min-height: 82px;
+  text-align: left;
+  display: grid;
+  gap: 0.28rem;
+  align-content: start;
+  padding: 0.85rem 0.95rem;
+}
+.service-recovery__button span {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 1rem;
+}
+.service-recovery__button small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.settings-section {
+  display: grid;
+  gap: 1rem;
+}
+.settings-toolbar {
+  align-items: center;
+}
+.settings-toolbar .muted-copy {
+  margin: 0.4rem 0 0;
+}
+.settings-grid {
+  align-items: start;
+}
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+}
+.settings-panel--wide {
+  grid-column: 1 / -1;
+}
+.settings-panel--full {
+  grid-column: 1 / -1;
+}
+.settings-grid-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+.settings-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+.settings-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.settings-mode-card {
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 22px;
+  padding: 0.95rem;
+  background: rgba(255,255,255,0.03);
+  display: grid;
+  gap: 0.9rem;
+}
+.settings-empty {
+  display: grid;
+  gap: 0.7rem;
+}
+.settings-note {
+  margin: 0;
+}
+.settings-panel input,
+.settings-panel select {
+  width: 100%;
+}
 
 .steam-panel { display: flex; flex-direction: column; gap: 0.9rem; }
 .steam-panel__hero { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.8rem; }
@@ -844,9 +936,86 @@ input[type='password'] {
 .timeline__item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.65rem; color: var(--muted); }
 .timeline__item span { width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); }
 .timeline__item strong { color: var(--text); }
-.logs-panel { margin-top: 0; }
-.logs-panel pre { margin: 0; min-height: 280px; max-height: 440px; overflow: auto; border-radius: 22px; padding: 1rem; color: #dfdef9; background: rgba(9, 10, 24, 0.9); border: 1px solid rgba(255,255,255,0.05); white-space: pre-wrap; }
-.log-controls input { width: 92px; }
+.logs-panel {
+  margin-top: 0;
+  display: grid;
+  gap: 1rem;
+}
+.logs-panel__head {
+  align-items: flex-start;
+  gap: 1rem;
+}
+.logs-panel__copy {
+  margin: 0.35rem 0 0;
+}
+.logs-panel__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.logs-panel__filters {
+  align-items: center;
+}
+.logs-panel__filters select {
+  min-width: 122px;
+}
+.logs-panel__filters input[type="search"] {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.logs-panel__filters input[type="number"] {
+  width: 92px;
+}
+.logs-stream {
+  display: grid;
+  gap: 0.8rem;
+  min-height: 280px;
+  max-height: 440px;
+  overflow: auto;
+  padding-right: 0.35rem;
+}
+.log-entry {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.95rem 1rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.05);
+  background: rgba(9, 10, 24, 0.9);
+}
+.log-entry__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.log-entry strong {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.log-entry code {
+  display: block;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  color: #dfdef9;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.04);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.logs-empty {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  border: 1px dashed rgba(255,255,255,0.08);
+  color: var(--muted);
+  background: rgba(255,255,255,0.02);
+}
 
 .stress-status {
   display: flex;
@@ -1025,6 +1194,10 @@ input[type='password'] {
   .steam-queue-grid,
   .token-box,
   .danger-zone,
+  .service-recovery__grid,
+  .settings-grid-fields,
+  .settings-toggle-grid,
+  .settings-mode-grid,
   .power-breakdown,
   .power-breakdown--stack {
     grid-template-columns: 1fr;

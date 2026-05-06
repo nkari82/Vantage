@@ -24,7 +24,9 @@ import { getGpuStatus, getSystemMetrics, withEstimatedSystemPower } from "./syst
 import { PowerTracker } from "./power-tracker.js";
 import {
   appendMetric,
+  appendPowerHistory,
   purgeExpiredSteamQueue,
+  readPowerHistory,
   readSteamSessionState,
   summarizeSteamQueue,
   writeSteamSessionState,
@@ -107,20 +109,22 @@ function ensureDevAuthDefaults(): void {
 
 ensureDevAuthDefaults();
 
-const defaultDashboardDistDir = path.resolve(__dirname, "../../dist/client");
+const defaultDashboardDistDir = path.resolve(process.cwd(), "dist/client");
 const dashboardDistDir = process.env.VANTAGE_DASHBOARD_DIST ?? defaultDashboardDistDir;
 const dashboardIndexPath = path.join(dashboardDistDir, "index.html");
 const runtimeDataDir = path.resolve(process.cwd(), "data");
 const powerTracker = new PowerTracker(runtimeDataDir);
 
-let powerHistory: { mode: PowerMode; timestamp: number }[] = [];
 const MAX_HISTORY = 50;
+let powerHistory = readPowerHistory(MAX_HISTORY);
 
 function addPowerHistory(mode: PowerMode) {
-  powerHistory.push({ mode, timestamp: Date.now() });
+  const entry = { mode, timestamp: Date.now() };
+  powerHistory.push(entry);
   if (powerHistory.length > MAX_HISTORY) {
-    powerHistory.shift();
+    powerHistory = powerHistory.slice(-MAX_HISTORY);
   }
+  appendPowerHistory(entry);
 }
 
 setInterval(async () => {
@@ -240,7 +244,7 @@ function makeAk620View(gpuTemp: number): Ak620StatusView {
 app.use("/api", createPowerRouter({
   getCurrentMode: () => currentMode,
   setCurrentMode: (mode: PowerMode) => { currentMode = mode; saveCurrentMode(mode); },
-  getPowerHistory: () => powerHistory,
+  getPowerHistory: () => readPowerHistory(MAX_HISTORY),
   addPowerHistory: addPowerHistory,
   getConfig: () => config,
   markLlmActivity: markLlmActivity,
@@ -276,15 +280,32 @@ app.get("/api/config", (_req, res) => {
 
 app.post("/api/config", (req, res) => {
   const newConfig = req.body as Partial<AppConfig>;
-  saveConfig((draft) => {
+  const nextConfig = saveConfig((draft) => {
     if (newConfig.llmGateway) {
       draft.llmGateway = { ...draft.llmGateway, ...newConfig.llmGateway };
     }
     if (newConfig.ak620) {
       draft.ak620 = { ...draft.ak620, ...newConfig.ak620 };
     }
+    if (newConfig.alerts) {
+      draft.alerts = { ...draft.alerts, ...newConfig.alerts };
+    }
+    if (newConfig.powerTracking) {
+      draft.powerTracking = { ...draft.powerTracking, ...newConfig.powerTracking };
+    }
+    if (newConfig.lowPowerMode) {
+      draft.lowPowerMode = { ...draft.lowPowerMode, ...newConfig.lowPowerMode };
+    }
+    if (newConfig.powerModes) {
+      draft.powerModes = {
+        DEFAULT: { ...draft.powerModes.DEFAULT, ...(newConfig.powerModes.DEFAULT ?? {}) },
+        LOW_POWER: { ...draft.powerModes.LOW_POWER, ...(newConfig.powerModes.LOW_POWER ?? {}) },
+        STANDARD_250: { ...draft.powerModes.STANDARD_250, ...(newConfig.powerModes.STANDARD_250 ?? {}) },
+        STANDARD_280: { ...draft.powerModes.STANDARD_280, ...(newConfig.powerModes.STANDARD_280 ?? {}) },
+      };
+    }
   });
-  res.json({ ok: true, config });
+  res.json({ ok: true, config: nextConfig });
 });
 
 app.post("/api/login", (req, res) => {

@@ -112,17 +112,17 @@ Test-Scenario "Steam endpoints enforce ADAPTIVE mode" "P0" {
     $steamApi = Get-Content "app\src\server\api\steam.ts" -Raw
     
     # Check session start endpoint
-    if ($steamApi -notmatch 'router\.post\("/steam/session/start".*ensureAdaptiveMode') {
+    if ($steamApi -notmatch '(?s)router\.post\("/steam/session/start".*?ensureAdaptiveMode') {
         throw "Session start missing ADAPTIVE guard"
     }
     
     # Check session end endpoint
-    if ($steamApi -notmatch 'router\.post\("/steam/session/end".*ensureAdaptiveMode') {
+    if ($steamApi -notmatch '(?s)router\.post\("/steam/session/end".*?ensureAdaptiveMode') {
         throw "Session end missing ADAPTIVE guard"
     }
     
     # Check enqueue endpoint
-    if ($steamApi -notmatch 'router\.post\("/steam/queue/enqueue".*ensureAdaptiveMode') {
+    if ($steamApi -notmatch '(?s)router\.post\("/steam/queue/enqueue".*?ensureAdaptiveMode') {
         throw "Enqueue missing ADAPTIVE guard"
     }
 }
@@ -203,7 +203,7 @@ Test-Scenario "Win32 controller uses correct Windows commands" "P0" {
 
 # P0: Service Name Mapping
 Test-Scenario "Service runtime maps Linux names to Windows names" "P0" {
-    $serviceRuntime = Get-Content "app\src\server\service-runtime.ts" -Raw
+    $serviceRuntime = Get-Content "services\common\src\service-runtime.ts" -Raw
     
     $expectedMappings = @{
         "vantage-backend.service" = "VantageBackend"
@@ -212,7 +212,7 @@ Test-Scenario "Service runtime maps Linux names to Windows names" "P0" {
     }
     
     foreach ($mapping in $expectedMappings.GetEnumerator()) {
-        $pattern = [regex]::Escape($mapping.Key) + '.*' + [regex]::Escape($mapping.Value)
+        $pattern = '(?s)' + [regex]::Escape($mapping.Key) + '.*?' + [regex]::Escape($mapping.Value)
         if ($serviceRuntime -notmatch $pattern) {
             throw "Missing mapping: $($mapping.Key) -> $($mapping.Value)"
         }
@@ -269,8 +269,11 @@ Test-Scenario "Queue has TTL and expiration logic" "P1" {
     $steamApi = Get-Content "app\src\server\api\steam.ts" -Raw
     $storage = Get-Content "app\src\server\storage.ts" -Raw
     
-    if ($steamApi -notmatch "QUEUE_TTL_MS\s*=") {
-        throw "QUEUE_TTL_MS constant not found"
+    if ($steamApi -notmatch "RESULT_TTL_MS\s*=") {
+        throw "RESULT_TTL_MS constant not found"
+    }
+    if ($steamApi -notmatch "ttlExpiresAt") {
+        throw "TTL expiration assignment not found in steam API"
     }
     if ($storage -notmatch "ttlExpiresAt") {
         throw "TTL expiration field not found in storage"
@@ -338,6 +341,47 @@ Test-Scenario "README documents Windows support" "P1" {
     }
     if ($readme -notmatch "install-vantage\.ps1") {
         throw "Windows installer not documented"
+    }
+}
+
+# P1: Installer Self-Check Coverage
+Test-Scenario "Linux installer performs post-install self-check" "P1" {
+    $installer = Get-Content "install-vantage.sh" -Raw
+
+    if ($installer -notmatch "function?\s*run_post_install_self_check|run_post_install_self_check\(\)") {
+        throw "Linux self-check function not found"
+    }
+    if ($installer -notmatch "wait_for_service_active") {
+        throw "Linux service readiness check not found"
+    }
+    if ($installer -notmatch "http://127\.0\.0\.1:18080/health") {
+        throw "Linux backend health check not found"
+    }
+    if ($installer -notmatch "http://127\.0\.0\.1:18080/api/status") {
+        throw "Linux authenticated status check not found"
+    }
+    if ($installer -notmatch 'Authorization: Bearer \$\{system_token\}|Authorization: Bearer \$\{SYSTEM_TOKEN\}') {
+        throw "Linux auth header check not found"
+    }
+}
+
+Test-Scenario "Windows installer performs post-install self-check" "P1" {
+    $installer = Get-Content "install-vantage.ps1" -Raw
+
+    if ($installer -notmatch "Invoke-PostInstallSelfCheck") {
+        throw "Windows self-check function not found"
+    }
+    if ($installer -notmatch "Wait-ServiceReady") {
+        throw "Windows service readiness check not found"
+    }
+    if ($installer -notmatch "http://127\.0\.0\.1:18080/health") {
+        throw "Windows backend health check not found"
+    }
+    if ($installer -notmatch "http://127\.0\.0\.1:18080/api/status") {
+        throw "Windows authenticated status check not found"
+    }
+    if ($installer -notmatch 'Authorization = "Bearer \$SystemToken"') {
+        throw "Windows auth header check not found"
     }
 }
 

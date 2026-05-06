@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import { Component, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, FormEvent, ErrorInfo, ReactNode } from "react";
 import { LoginView } from "./components/dashboard/LoginView";
 import { DashboardLayout } from "./components/dashboard/DashboardLayout";
 import {
@@ -16,6 +16,9 @@ import type { DashboardActions, DashboardViewModel, StressStatus } from "./compo
 import { api } from "./lib/api";
 import { clampPercent, fmtNumber, fmtTs } from "./lib/format";
 import type {
+  AppConfig,
+  LogEntry,
+  LogLevelFilter,
   PowerMode,
   PowerStats,
   SteamReplayStatusResponse,
@@ -34,16 +37,88 @@ function isProtectedRouteFailure(message: string): boolean {
     || message.includes("Expected JSON but received HTML from /api/");
 }
 
+function makeLogEntry(message: string, level: LogEntry["level"] = "info"): LogEntry {
+  return {
+    raw: message,
+    message,
+    level,
+    timestamp: null,
+  };
+}
+
+function LoadingView({ message }: { message: string }) {
+  return (
+    <main className="dashboard-shell dashboard-shell--reference">
+      <div className="aurora aurora--one" />
+      <div className="aurora aurora--two" />
+      <div className="login-container glass-card">
+        <div className="login-header">
+          <p className="eyebrow">Vantage Mission Control</p>
+          <h1>대시보드 준비 중</h1>
+          <p className="hero__copy">{message}</p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+class DashboardErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; message: string }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : "알 수 없는 렌더링 오류",
+    };
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    console.error("[DashboardErrorBoundary] render crash", error, info.componentStack);
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <main className="dashboard-shell dashboard-shell--reference">
+        <div className="aurora aurora--one" />
+        <div className="aurora aurora--two" />
+        <div className="login-container glass-card">
+          <div className="login-header">
+            <p className="eyebrow">Dashboard Runtime Error</p>
+            <h1>대시보드 렌더링 오류</h1>
+            <p className="hero__copy">{this.state.message}</p>
+            <button onClick={() => window.location.reload()}>새로고침</button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+}
+
 export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null);
   const [steamStatus, setSteamStatus] = useState<SteamSessionStatusResponse | null>(null);
   const [steamReplay, setSteamReplay] = useState<SteamReplayStatusResponse | null>(null);
   const [powerHistory, setPowerHistory] = useState<Array<{ mode: PowerMode; timestamp: number }>>([]);
   const [powerStats, setPowerStats] = useState<PowerStats | null>(null);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [logService, setLogService] = useState<string>(services[0]);
   const [logLines, setLogLines] = useState(80);
+  const [logQuery, setLogQuery] = useState("");
+  const [logLevel, setLogLevel] = useState<LogLevelFilter>("all");
+  const [logSource, setLogSource] = useState<string | null>(null);
+  const [logTotal, setLogTotal] = useState(0);
+  const [logsUnavailable, setLogsUnavailable] = useState(false);
+  const [configDraft, setConfigDraft] = useState<AppConfig | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [isLogin, setIsLogin] = useState(() => !api.getAdminToken());
+  const [isBootstrapping, setIsBootstrapping] = useState(() => Boolean(api.getAdminToken()));
   const [gatewayToken, setGatewayToken] = useState(() => api.getGatewayToken() || "x");
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
@@ -59,7 +134,13 @@ export default function App() {
     setSteamReplay(null);
     setPowerStats(null);
     setStressStatus(null);
-    setLogs([loginRequiredLogsMessage]);
+    setLogEntries([makeLogEntry(loginRequiredLogsMessage)]);
+    setLogSource(null);
+    setLogTotal(0);
+    setLogsUnavailable(false);
+    setConfigDraft(null);
+    setIsSavingConfig(false);
+    setIsBootstrapping(false);
 
     if (sessionExpired) {
       api.setAdminToken("");
@@ -71,10 +152,7 @@ export default function App() {
     }
   }
 
-  async function refreshStatus() {
-    const nextStatus = await api.status();
-    setStatus(nextStatus);
-
+  async function refreshSteamData() {
     if (!hasAdminSession()) {
       setSteamStatus(null);
       setSteamReplay(null);
@@ -98,6 +176,12 @@ export default function App() {
       setSteamReplay(null);
       setError(message);
     }
+  }
+
+  async function refreshStatus() {
+    const nextStatus = await api.status();
+    setStatus(nextStatus);
+    await refreshSteamData();
   }
 
   async function refreshTelemetry() {
@@ -125,38 +209,89 @@ export default function App() {
 
   async function loadLogs() {
     if (!hasAdminSession()) {
-      setLogs([loginRequiredLogsMessage]);
+      setLogEntries([makeLogEntry(loginRequiredLogsMessage)]);
+      setLogSource(null);
+      setLogTotal(0);
+      setLogsUnavailable(false);
       return;
     }
 
     try {
-      const data = await api.logs(logService, logLines);
-      setLogs(data.lines);
+      const data = await api.logs(logService, logLines, logQuery, logLevel);
+      const safeEntries = Array.isArray(data.entries) ? data.entries : [];
+      setLogEntries(safeEntries);
+      setLogSource(data.source ?? null);
+      setLogTotal(Number.isFinite(data.total) ? data.total : safeEntries.length);
+      setLogsUnavailable(Boolean(data.unavailable));
     } catch (err) {
       const message = err instanceof Error ? err.message : "로그를 불러오지 못했습니다.";
       if (isProtectedRouteFailure(message)) {
         clearProtectedState(true);
         return;
       }
-      setLogs([message]);
+      setLogEntries([makeLogEntry(message, "error")]);
+      setLogSource(null);
+      setLogTotal(1);
+      setLogsUnavailable(true);
     }
+  }
+
+  async function loadConfig() {
+    if (!hasAdminSession()) {
+      setConfigDraft(null);
+      return;
+    }
+
+    try {
+      const nextConfig = await api.getConfig();
+      setConfigDraft(nextConfig);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "설정을 불러오지 못했습니다.";
+      if (isProtectedRouteFailure(message)) {
+        clearProtectedState(true);
+        return;
+      }
+      setError(message);
+    }
+  }
+
+  async function bootstrapDashboardData() {
+    setIsBootstrapping(true);
+    try {
+      const nextStatus = await api.status();
+      setStatus(nextStatus);
+    } finally {
+      setIsBootstrapping(false);
+    }
+
+    if (!hasAdminSession()) {
+      setSteamStatus(null);
+      setSteamReplay(null);
+      void refreshTelemetry().catch(() => undefined);
+      return;
+    }
+
+    void refreshSteamData().catch(() => undefined);
+    void refreshTelemetry().catch(() => undefined);
+    void loadLogs().catch(() => undefined);
+    void loadConfig().catch(() => undefined);
+    void api.stressStatus().then(setStressStatus).catch(() => undefined);
   }
 
   async function handleLogin(event: FormEvent) {
     event.preventDefault();
     try {
+      setIsBootstrapping(true);
       const data = await api.login(loginUser, loginPass);
       api.setAdminToken(data.token, rememberMe);
-      setIsLogin(false);
       setLoginError(null);
       setNotice("로그인했습니다.");
-      await Promise.all([
-        refreshStatus(),
-        refreshTelemetry(),
-        loadLogs(),
-        api.stressStatus().then(setStressStatus),
-      ]);
+      await bootstrapDashboardData();
+      if (hasAdminSession()) {
+        setIsLogin(false);
+      }
     } catch (err) {
+      setIsBootstrapping(false);
       const message = err instanceof Error ? err.message : "로그인에 실패했습니다.";
       setLoginError(message === "Invalid credentials" ? "잘못된 사용자 이름 또는 비밀번호입니다." : message);
     }
@@ -171,7 +306,13 @@ export default function App() {
     setSteamReplay(null);
     setPowerStats(null);
     setStressStatus(null);
-    setLogs([loginRequiredLogsMessage]);
+    setLogEntries([makeLogEntry(loginRequiredLogsMessage)]);
+    setLogSource(null);
+    setLogTotal(0);
+    setLogsUnavailable(false);
+    setConfigDraft(null);
+    setIsSavingConfig(false);
+    setIsBootstrapping(false);
     setNotice("로그아웃했습니다.");
   }
 
@@ -185,6 +326,25 @@ export default function App() {
         ? "LLM Gateway token 기본값(x)을 사용합니다."
         : "LLM Gateway token을 저장했습니다.",
     );
+  }
+
+  async function saveSettingsConfig() {
+    if (!configDraft) {
+      return;
+    }
+
+    try {
+      setIsSavingConfig(true);
+      setError(null);
+      const result = await api.saveConfig(configDraft);
+      setConfigDraft(result.config);
+      setNotice("설정을 저장했습니다.");
+      await refreshStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "설정을 저장하지 못했습니다.");
+    } finally {
+      setIsSavingConfig(false);
+    }
   }
 
   async function runAction(action: () => Promise<unknown>, success: string) {
@@ -207,9 +367,16 @@ export default function App() {
   }
 
   useEffect(() => {
-    void refreshStatus().catch((err: unknown) => setError(err instanceof Error ? err.message : "상태 로드 실패"));
-    void refreshTelemetry().catch(() => undefined);
-    void loadLogs().catch(() => undefined);
+    if (hasAdminSession()) {
+      void bootstrapDashboardData().catch((err: unknown) => {
+        setIsBootstrapping(false);
+        setError(err instanceof Error ? err.message : "대시보드를 초기화하지 못했습니다.");
+      });
+    } else {
+      setIsBootstrapping(false);
+      void refreshStatus().catch((err: unknown) => setError(err instanceof Error ? err.message : "상태 로드 실패"));
+      void refreshTelemetry().catch(() => undefined);
+    }
 
     const statusTimer = window.setInterval(() => {
       void refreshStatus().catch(() => undefined);
@@ -235,7 +402,7 @@ export default function App() {
 
   useEffect(() => {
     void loadLogs().catch(() => undefined);
-  }, [logService, logLines]);
+  }, [logService, logLines, logQuery, logLevel]);
 
   useEffect(() => {
     const syncRailFromHash = () => {
@@ -262,61 +429,67 @@ export default function App() {
     window.location.hash = page;
   }
 
-  const totalGpuPower = useMemo(() => (status?.gpus ?? []).reduce((acc, gpu) => acc + gpu.powerW, 0), [status]);
-  const estimatedSystemPower = status?.system.estimatedSystemPowerW ?? totalGpuPower;
-  const cpuPowerLabel = status?.system.cpuPowerW === null || status?.system.cpuPowerW === undefined
+  const system = status?.system;
+  const gateway = status?.gateway;
+  const gpuList = Array.isArray(status?.gpus) ? status.gpus : [];
+  const totalGpuPower = useMemo(() => gpuList.reduce((acc, gpu) => acc + gpu.powerW, 0), [gpuList]);
+  const safePowerHistory = Array.isArray(powerHistory) ? powerHistory : [];
+  const estimatedSystemPower = system?.estimatedSystemPowerW ?? totalGpuPower;
+  const cpuPowerLabel = system?.cpuPowerW === null || system?.cpuPowerW === undefined
     ? "CPU RAPL unavailable"
-    : `CPU ${fmtNumber(status.system.cpuPowerW, 1)} W`;
-  const isWindows = status?.system.os.platform === "win32";
+    : `CPU ${fmtNumber(system.cpuPowerW, 1)} W`;
+  const isWindows = system?.os?.platform === "win32";
   const health = getHealth(status ?? undefined);
   const steamCounts = steamStatus?.queueSummary ?? status?.queueSummary ?? { queued: 0, processing: 0, completed: 0, failed: 0 };
   const queueLoad = steamCounts.queued + steamCounts.processing;
-  const memoryPercent = status?.system.memoryTotalGb
-    ? (status.system.memoryUsedGb / status.system.memoryTotalGb) * 100
+  const memoryPercent = system?.memoryTotalGb
+    ? (system.memoryUsedGb / system.memoryTotalGb) * 100
     : 0;
-  const avgGpuTemp = status?.gpus.length
-    ? status.gpus.reduce((acc, gpu) => acc + gpu.temperatureC, 0) / status.gpus.length
+  const avgGpuTemp = gpuList.length
+    ? gpuList.reduce((acc, gpu) => acc + gpu.temperatureC, 0) / gpuList.length
     : 0;
   const coreBars = useMemo(
-    () => (status?.system.cpuCoresUsagePercent ?? []).map((usage) => ({
+    () => (system?.cpuCoresUsagePercent ?? []).map((usage) => ({
       usage,
       style: { "--core-height": `${Math.max(8, clampPercent(usage))}%` } as CSSProperties,
     })),
-    [status?.system.cpuCoresUsagePercent],
+    [system?.cpuCoresUsagePercent],
   );
   const modeSignal = useMemo(() => {
-    const recent = powerHistory.slice(0, 8).reverse().map((entry) => modeLevel(entry.mode));
+    const recent = safePowerHistory.slice(0, 8).reverse().map((entry) => modeLevel(entry.mode));
     return recent.length > 0 ? recent : [modeLevel(status?.mode ?? "DEFAULT")];
-  }, [powerHistory, status?.mode]);
+  }, [safePowerHistory, status?.mode]);
   const cpuSignal = useMemo(() => {
-    const series = (status?.system.cpuCoresUsagePercent ?? []).slice(0, 8).filter((value) => Number.isFinite(value));
-    const fallback = status?.system.cpuUsagePercent ?? 0;
+    const cpuCoreSeries = Array.isArray(system?.cpuCoresUsagePercent) ? system.cpuCoresUsagePercent : [];
+    const series = cpuCoreSeries.slice(0, 8).filter((value) => Number.isFinite(value));
+    const fallback = Number.isFinite(system?.cpuUsagePercent) ? system.cpuUsagePercent : 0;
     const nextSeries = series.length > 0 ? [...series] : [fallback];
     while (nextSeries.length < 6) {
       nextSeries.unshift(nextSeries[0]);
     }
     return nextSeries.slice(-8);
-  }, [status?.system.cpuCoresUsagePercent, status?.system.cpuUsagePercent]);
+  }, [system?.cpuCoresUsagePercent, system?.cpuUsagePercent]);
   const thermalSignal = useMemo(() => {
-    const primaryTemps = Object.values(status?.system.temperatures ?? {}).slice(0, 8);
-    const fallbackTemps = (status?.gpus ?? []).map((gpu) => gpu.temperatureC).slice(0, 8);
-    const series = (primaryTemps.length > 0 ? primaryTemps : fallbackTemps).filter((value) => Number.isFinite(value));
+    const primaryTemps = Object.values(system?.temperatures ?? {}).slice(0, 8);
+    const fallbackTemps = gpuList.map((gpu) => gpu.temperatureC).slice(0, 8);
+    const sourceSeries = primaryTemps.length > 0 ? primaryTemps : fallbackTemps;
+    const series = (Array.isArray(sourceSeries) ? sourceSeries : []).filter((value) => Number.isFinite(value));
     const nextSeries = series.length > 0 ? [...series] : [avgGpuTemp];
     while (nextSeries.length < 6) {
       nextSeries.unshift(nextSeries[0]);
     }
     return nextSeries.slice(-8);
-  }, [status?.system.temperatures, status?.gpus, avgGpuTemp]);
-  const signalLabels = useMemo(() => Array.from({ length: modeSignal.length }, (_, index) => `S${index + 1}`), [modeSignal.length]);
-  const serviceEntries = Object.entries(status?.system.serviceStatus ?? {});
+  }, [system?.temperatures, gpuList, avgGpuTemp]);
+  const signalLabels = useMemo(() => Array.from({ length: modeSignal?.length ?? 0 }, (_, index) => `S${index + 1}`), [modeSignal]);
+  const serviceEntries = Object.entries(system?.serviceStatus ?? {});
   const activeServiceCount = serviceEntries.filter(([, value]) => value === "active").length;
-  const maxStorageUse = Math.max(0, ...(status?.system.storage ?? []).map((disk) => disk.usePercent));
-  const networkLoad = (status?.system.network ?? []).reduce((acc, item) => acc + item.rxSec + item.txSec, 0) / 1024 / 1024;
-  const gpuMemoryPressure = Math.max(0, ...(status?.gpus ?? []).map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100));
-  const gpuUtilizationValues = useMemo(() => (status?.gpus ?? []).map((gpu) => gpu.utilization), [status?.gpus]);
+  const maxStorageUse = Math.max(0, ...(system?.storage ?? []).map((disk) => disk.usePercent));
+  const networkLoad = (system?.network ?? []).reduce((acc, item) => acc + item.rxSec + item.txSec, 0) / 1024 / 1024;
+  const gpuMemoryPressure = Math.max(0, ...gpuList.map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100));
+  const gpuUtilizationValues = useMemo(() => gpuList.map((gpu) => gpu.utilization), [gpuList]);
   const vramPressureValues = useMemo(
-    () => (status?.gpus ?? []).map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100),
-    [status?.gpus],
+    () => gpuList.map((gpu) => (gpu.memoryUsedMiB / Math.max(gpu.memoryTotalMiB, 1)) * 100),
+    [gpuList],
   );
   const assistantInsights = useMemo(() => {
     if (!status) {
@@ -344,8 +517,9 @@ export default function App() {
       notes.push({ title: "Stress Running", detail: `${stressStatus.currentTest ?? "system"} 테스트가 진행 중입니다.`, tone: "hot" });
     }
 
-    if (status.alerts.length > 0) {
-      notes.push({ title: "Alerts", detail: `활성 알림 ${status.alerts.length}건을 먼저 확인하세요.`, tone: "hot" });
+    const alertCount = status.alerts?.length ?? 0;
+    if (alertCount > 0) {
+      notes.push({ title: "Alerts", detail: `활성 알림 ${alertCount}건을 먼저 확인하세요.`, tone: "hot" });
     }
 
     if (notes.length === 0) {
@@ -357,10 +531,10 @@ export default function App() {
   }, [estimatedSystemPower, status, steamStatus, stressStatus]);
   const stageMetrics = useMemo(() => ([
     { label: "Service Health", value: `${activeServiceCount}/${serviceEntries.length || 1}`, detail: "active runtime services" },
-    { label: "Memory Pressure", value: `${fmtNumber(memoryPercent, 0)}%`, detail: `${fmtNumber(status?.system.memoryUsedGb ?? 0, 1)} / ${fmtNumber(status?.system.memoryTotalGb ?? 0, 1)} GB` },
+    { label: "Memory Pressure", value: `${fmtNumber(memoryPercent, 0)}%`, detail: `${fmtNumber(system?.memoryUsedGb ?? 0, 1)} / ${fmtNumber(system?.memoryTotalGb ?? 0, 1)} GB` },
     { label: "VRAM Pressure", value: `${fmtNumber(gpuMemoryPressure, 0)}%`, detail: "peak GPU memory occupancy" },
     { label: "Network Flow", value: `${fmtNumber(networkLoad, 2)} MB/s`, detail: `storage peak ${fmtNumber(maxStorageUse, 0)}%` },
-  ]), [activeServiceCount, gpuMemoryPressure, maxStorageUse, memoryPercent, networkLoad, serviceEntries.length, status?.system.memoryTotalGb, status?.system.memoryUsedGb]);
+  ]), [activeServiceCount, gpuMemoryPressure, maxStorageUse, memoryPercent, networkLoad, serviceEntries.length, system?.memoryTotalGb, system?.memoryUsedGb]);
   const overviewStats = useMemo(() => ([
     {
       eyebrow: "System Power",
@@ -377,7 +551,7 @@ export default function App() {
     {
       eyebrow: "Gateway Status",
       value: status?.llmGatewayEnabled ? "Online" : "Paused",
-      delta: `${status?.gateway.listenPort ?? "-"} port`,
+      delta: `${gateway?.listenPort ?? "-"} port`,
       icon: "◈",
     },
     {
@@ -408,6 +582,13 @@ export default function App() {
     showLogsPanel: activeRail === "overview" || activeRail === "systems",
   };
   const focusPanelCount = [visibility.showSteamPanel, visibility.showGatewayPanel, visibility.showCostPanel].filter(Boolean).length;
+  const safeSignalLabels = Array.isArray(signalLabels) ? signalLabels : [];
+  const safeStageMetrics = Array.isArray(stageMetrics) ? stageMetrics : [];
+  const safeAssistantInsights = Array.isArray(assistantInsights) ? assistantInsights : [];
+  const safeGpuUtilizationValues = Array.isArray(gpuUtilizationValues) ? gpuUtilizationValues : [];
+  const safeVramPressureValues = Array.isArray(vramPressureValues) ? vramPressureValues : [];
+  const safeThermalSignal = Array.isArray(thermalSignal) ? thermalSignal : [];
+  const safeServiceEntries = Array.isArray(serviceEntries) ? serviceEntries : [];
   const focusGridClassName = [
     "focus-grid",
     focusPanelCount === 2 ? "focus-grid--dual" : "",
@@ -432,11 +613,18 @@ export default function App() {
     status,
     steamStatus,
     steamReplay,
-    powerHistory,
+    powerHistory: safePowerHistory,
     powerStats,
-    logs,
+    logEntries,
     logService,
     logLines,
+    logQuery,
+    logLevel,
+    logSource,
+    logTotal,
+    logsUnavailable,
+    config: configDraft,
+    isSavingConfig,
     gatewayToken,
     notice,
     error,
@@ -449,17 +637,17 @@ export default function App() {
     cpuPowerLabel,
     queueLoad,
     memoryPercent,
-    signalLabels,
+    signalLabels: safeSignalLabels,
     modePolyline,
     cpuPolyline,
     thermalPolyline,
-    thermalSignal,
-    gpuUtilizationValues,
-    vramPressureValues,
-    stageMetrics,
-    assistantInsights,
+    thermalSignal: safeThermalSignal,
+    gpuUtilizationValues: safeGpuUtilizationValues,
+    vramPressureValues: safeVramPressureValues,
+    stageMetrics: safeStageMetrics,
+    assistantInsights: safeAssistantInsights,
     overviewStats,
-    serviceEntries,
+    serviceEntries: safeServiceEntries,
     activeServiceCount,
     maxStorageUse,
     networkLoad,
@@ -478,14 +666,21 @@ export default function App() {
     saveGatewayToken,
     setLogService,
     setLogLines,
+    setLogQuery,
+    setLogLevel,
     refreshLogs: () => {
       void loadLogs();
     },
+    setConfig: (next: AppConfig) => {
+      setConfigDraft(next);
+    },
+    saveConfig: saveSettingsConfig,
+    restartService: (service: string) => api.restartService(service),
     runAction,
     confirmDangerousAction,
   };
 
-  if (isLogin) {
+  if (isLogin && !isBootstrapping) {
     return (
       <LoginView
         loginError={loginError}
@@ -500,12 +695,18 @@ export default function App() {
     );
   }
 
+  if (isBootstrapping || !status) {
+    return <LoadingView message="로그인 후 대시보드 상태를 동기화하는 중입니다." />;
+  }
+
   return (
-    <DashboardLayout
-      viewModel={viewModel}
-      actions={actions}
-      formatTimestamp={fmtTs}
-      formatNumber={fmtNumber}
-    />
+    <DashboardErrorBoundary>
+      <DashboardLayout
+        viewModel={viewModel}
+        actions={actions}
+        formatTimestamp={fmtTs}
+        formatNumber={fmtNumber}
+      />
+    </DashboardErrorBoundary>
   );
 }

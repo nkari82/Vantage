@@ -43,6 +43,8 @@ export function FocusSection({
   formatNumber,
   actions,
 }: FocusSectionProps) {
+  const gateway = status?.gateway;
+  const gatewayEnabled = status?.llmGatewayEnabled ?? false;
   const focusClassName = [
     className,
     showSteamPanel && showGatewayPanel && showCostPanel ? "focus-grid--stacked" : "",
@@ -116,15 +118,15 @@ export function FocusSection({
           <p className="eyebrow">LLM Gateway</p>
           <h2>Gateway Control</h2>
         </div>
-        <span className={`pill ${status?.llmGatewayEnabled ? "pill--green" : "pill--red"}`}>
-          {status?.llmGatewayEnabled ? "Enabled" : "Disabled"}
+        <span className={`pill ${gatewayEnabled ? "pill--green" : "pill--red"}`}>
+          {gatewayEnabled ? "Enabled" : "Disabled"}
         </span>
       </div>
       <div className="kv-list">
         <span>Ready</span><strong>{status?.llmReady ? "Yes" : "No"}</strong>
-        <span>Upstream</span><strong>{status?.gateway.upstreamUrl ?? "-"}</strong>
-        <span>Listen</span><strong>{status?.gateway.listenPort ?? "-"}</strong>
-        <span>Idle Timeout</span><strong>{status?.gateway.idleTimeoutMinutes ?? "-"} min</strong>
+        <span>Upstream</span><strong>{gateway?.upstreamUrl ?? "-"}</strong>
+        <span>Listen</span><strong>{gateway?.listenPort ?? "-"}</strong>
+        <span>Idle Timeout</span><strong>{gateway?.idleTimeoutMinutes ?? "-"} min</strong>
       </div>
       <div className="token-box">
         <input
@@ -137,7 +139,7 @@ export function FocusSection({
       </div>
       <p className="muted-copy">별도 값을 저장하지 않으면 런타임 기본값인 x를 사용합니다.</p>
       <div className="button-row">
-        <button onClick={() => void actions.runAction(() => api.setGatewayEnabled(!(status?.llmGatewayEnabled ?? false)), status?.llmGatewayEnabled ? "LLM Gateway를 비활성화했습니다." : "LLM Gateway를 활성화했습니다.")}>{status?.llmGatewayEnabled ? "Disable Gateway" : "Enable Gateway"}</button>
+        <button onClick={() => void actions.runAction(() => api.setGatewayEnabled(!gatewayEnabled), gatewayEnabled ? "LLM Gateway를 비활성화했습니다." : "LLM Gateway를 활성화했습니다.")}>{gatewayEnabled ? "Disable Gateway" : "Enable Gateway"}</button>
         <button onClick={() => void actions.runAction(() => api.touchLlm(), "LLM Gateway keepalive를 전송했습니다.")}>Touch</button>
         <button onClick={() => void actions.runAction(() => api.startLlm(), "vLLM 시작 명령을 전송했습니다.")}>Start vLLM</button>
         <button onClick={() => void actions.runAction(() => api.stopLlm(), "vLLM 중지 명령을 전송했습니다.")}>Stop vLLM</button>

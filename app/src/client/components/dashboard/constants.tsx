@@ -69,24 +69,26 @@ export function serviceLabel(name: string): string {
 
 export function getHealth(status?: SystemStatus): HealthState {
   if (!status) return "warn";
-  if (status.alerts.length > 0 || status.system.degraded) return "bad";
-  const inactive = Object.values(status.system.serviceStatus).filter((value) => value !== "active").length;
+  if ((status.alerts?.length ?? 0) > 0 || status.system?.degraded) return "bad";
+  const inactive = Object.values(status.system?.serviceStatus ?? {}).filter((value) => value !== "active").length;
   return inactive > 0 ? "warn" : "ok";
 }
 
 export function steamHealthTone(status: SteamSessionStatusResponse | null): "pill--cyan" | "pill--green" | "pill--amber" {
   if (!status) return "pill--cyan";
+  const queueSummary = status.queueSummary ?? { queued: 0, processing: 0, completed: 0, failed: 0 };
   if (status.steamSessionActive) return "pill--green";
-  if (status.shouldReplay || status.queueSummary.processing > 0 || status.queueSummary.queued > 0) return "pill--amber";
+  if (status.shouldReplay || queueSummary.processing > 0 || queueSummary.queued > 0) return "pill--amber";
   return "pill--cyan";
 }
 
 export function steamHealthLabel(status: SteamSessionStatusResponse | null): string {
   if (!status) return "SYNCING";
+  const queueSummary = status.queueSummary ?? { queued: 0, processing: 0, completed: 0, failed: 0 };
   if (status.steamSessionActive) return "SESSION LIVE";
   if (status.shouldReplay) return "REPLAY PENDING";
-  if (status.queueSummary.processing > 0) return "QUEUE RUNNING";
-  if (status.queueSummary.queued > 0) return "QUEUE READY";
+  if (queueSummary.processing > 0) return "QUEUE RUNNING";
+  if (queueSummary.queued > 0) return "QUEUE READY";
   return status.adaptiveMode ? "STANDBY" : "ADAPTIVE ONLY";
 }
 
@@ -106,9 +108,11 @@ export function modeLevel(mode: PowerMode): number {
   }
 }
 
-export function ensureSeries(values: number[], fallback: number): number[] {
-  const clean = values.filter((value) => Number.isFinite(value));
-  const base = clean.length > 0 ? [...clean] : [fallback];
+export function ensureSeries(values: number[] | null | undefined, fallback: number): number[] {
+  const safeValues = Array.isArray(values) ? values : [];
+  const safeFallback = Number.isFinite(fallback) ? fallback : 0;
+  const clean = safeValues.filter((value) => Number.isFinite(value));
+  const base = clean.length > 0 ? [...clean] : [safeFallback];
 
   while (base.length < 6) {
     base.unshift(base[0]);
@@ -117,14 +121,15 @@ export function ensureSeries(values: number[], fallback: number): number[] {
   return base.slice(-8);
 }
 
-export function buildPolyline(values: number[]): string {
-  if (values.length === 0) {
+export function buildPolyline(values: number[] | null | undefined): string {
+  const safeValues = Array.isArray(values) ? values : [];
+  if (safeValues.length === 0) {
     return "0,100 100,100";
   }
 
-  const max = Math.max(1, ...values);
-  return values.map((value, index) => {
-    const x = values.length <= 1 ? 0 : (index / (values.length - 1)) * 100;
+  const max = Math.max(1, ...safeValues);
+  return safeValues.map((value, index) => {
+    const x = safeValues.length <= 1 ? 0 : (index / (safeValues.length - 1)) * 100;
     const y = 100 - Math.max(0, Math.min(100, (value / max) * 100));
     return `${x},${y}`;
   }).join(" ");

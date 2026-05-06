@@ -8,6 +8,7 @@ import { FocusSection } from "./sections/FocusSection";
 import { LogsSection } from "./sections/LogsSection";
 import { MetricsStrip } from "./sections/MetricsStrip";
 import { OperationsSection } from "./sections/OperationsSection";
+import { SettingsSection } from "./sections/SettingsSection";
 import { SystemsSection } from "./sections/SystemsSection";
 import { UtilitySection } from "./sections/UtilitySection";
 import { CostSummaryCard } from "./sections/CostSummaryCard";
@@ -28,9 +29,16 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
     steamReplay,
     powerHistory,
     powerStats,
-    logs,
+    logEntries,
     logService,
     logLines,
+    logQuery,
+    logLevel,
+    logSource,
+    logTotal,
+    logsUnavailable,
+    config,
+    isSavingConfig,
     gatewayToken,
     notice,
     error,
@@ -65,6 +73,9 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
     visibility,
   } = viewModel;
 
+  const system = status?.system;
+  const gateway = status?.gateway;
+
   return (
     <main className="dashboard-shell dashboard-shell--reference">
       <div className="aurora aurora--one" />
@@ -93,16 +104,16 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
               cpuPolyline={cpuPolyline}
               thermalPolyline={thermalPolyline}
               stageMetrics={stageMetrics}
-              cpuUsagePercent={status?.system.cpuUsagePercent ?? 0}
+              cpuUsagePercent={system?.cpuUsagePercent ?? 0}
               memoryPercent={memoryPercent}
               gpuMemoryPressure={gpuMemoryPressure}
               queueLoad={queueLoad}
               lastUsedAt={status?.lastUsedAt ?? null}
-              idleRemainingSeconds={status?.gateway.idleRemainingSeconds ?? 0}
+              idleRemainingSeconds={gateway?.idleRemainingSeconds ?? 0}
               networkLoad={networkLoad}
               maxStorageUse={maxStorageUse}
               totalGpuPower={totalGpuPower}
-              cpuPowerW={status?.system.cpuPowerW ?? 0}
+              cpuPowerW={system?.cpuPowerW ?? 0}
               steamHealthLabel={steamHealthLabel(steamStatus)}
               gatewayEnabled={status?.llmGatewayEnabled ?? false}
               activeServiceCount={activeServiceCount}
@@ -140,16 +151,16 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
                 cpuPolyline={cpuPolyline}
                 thermalPolyline={thermalPolyline}
                 stageMetrics={stageMetrics}
-                cpuUsagePercent={status?.system.cpuUsagePercent ?? 0}
+                cpuUsagePercent={system?.cpuUsagePercent ?? 0}
                 memoryPercent={memoryPercent}
                 gpuMemoryPressure={gpuMemoryPressure}
                 queueLoad={queueLoad}
                 lastUsedAt={status?.lastUsedAt ?? null}
-                idleRemainingSeconds={status?.gateway.idleRemainingSeconds ?? 0}
+                idleRemainingSeconds={gateway?.idleRemainingSeconds ?? 0}
                 networkLoad={networkLoad}
                 maxStorageUse={maxStorageUse}
                 totalGpuPower={totalGpuPower}
-                cpuPowerW={status?.system.cpuPowerW ?? 0}
+                cpuPowerW={system?.cpuPowerW ?? 0}
                 steamHealthLabel={steamHealthLabel(steamStatus)}
                 gatewayEnabled={status?.llmGatewayEnabled ?? false}
                 activeServiceCount={activeServiceCount}
@@ -188,6 +199,17 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
           </>
         )}
 
+        {visibility.isSettingsPage && (
+          <SettingsSection
+            config={config}
+            isSaving={isSavingConfig}
+            onConfigChange={actions.setConfig}
+            onSave={() => {
+              void actions.saveConfig();
+            }}
+          />
+        )}
+
         {visibility.showSettingsPageContent && (
           <OperationsSection currentMode={status?.mode} stressStatus={stressStatus} actions={actions} />
         )}
@@ -217,10 +239,18 @@ export function DashboardLayout({ viewModel, actions, formatTimestamp, formatNum
           <LogsSection
             logService={logService}
             logLines={logLines}
-            logs={logs}
+            logQuery={logQuery}
+            logLevel={logLevel}
+            logEntries={logEntries}
+            logSource={logSource}
+            logTotal={logTotal}
+            logsUnavailable={logsUnavailable}
             onLogServiceChange={actions.setLogService}
             onLogLinesChange={actions.setLogLines}
+            onLogQueryChange={actions.setLogQuery}
+            onLogLevelChange={actions.setLogLevel}
             onRefresh={actions.refreshLogs}
+            formatTimestamp={formatTimestamp}
           />
         )}
       </section>

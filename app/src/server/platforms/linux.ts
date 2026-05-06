@@ -44,6 +44,9 @@ export class LinuxController implements ISystemController {
   async stopService(serviceName: string): Promise<void> {
     await runCommand("/bin/systemctl", ["stop", serviceName]);
   }
+  async restartService(serviceName: string): Promise<void> {
+    await runCommand("/bin/systemctl", ["restart", serviceName]);
+  }
   async isServiceActive(serviceName: string): Promise<boolean> {
     try {
       await runCommand("/bin/systemctl", ["is-active", "--quiet", serviceName]);

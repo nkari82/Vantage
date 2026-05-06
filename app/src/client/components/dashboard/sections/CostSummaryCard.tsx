@@ -37,7 +37,7 @@ export function CostSummaryCard({
       </div>
       <div className="power-breakdown power-breakdown--stack">
         <span><strong>{formatNumber(totalGpuPower, 1)} W</strong> GPU</span>
-        <span><strong>{formatNumber(status?.system.basePowerEstimateW ?? 0, 1)} W</strong> Base</span>
+        <span><strong>{formatNumber(status?.system?.basePowerEstimateW ?? 0, 1)} W</strong> Base</span>
       </div>
     </article>
   );

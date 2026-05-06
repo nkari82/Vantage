@@ -1,13 +1,14 @@
 interface MiniChartProps {
   label: string;
   unit: string;
-  values: number[];
+  values: number[] | null | undefined;
   accent: string;
   max?: number;
 }
 
 export function MiniChart({ label, unit, values, accent, max }: MiniChartProps) {
-  const cleanValues = values.filter(Number.isFinite).slice(-80);
+  const safeValues = Array.isArray(values) ? values : [];
+  const cleanValues = safeValues.filter(Number.isFinite).slice(-80);
   const chartMax = max ?? Math.max(1, ...cleanValues);
   const points = cleanValues.map((value, index) => {
     const x = cleanValues.length <= 1 ? 0 : (index / (cleanValues.length - 1)) * 100;
