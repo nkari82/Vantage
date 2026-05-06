@@ -154,7 +154,79 @@ vantage ALL=(root) NOPASSWD: /usr/bin/stress-ng
 vantage ALL=(root) NOPASSWD: /usr/bin/grub-reboot
 ```
 
-## 12. 데이터 파일 위치
+## 12. 랜 케이블 직결(Host ↔ PC) 설정 가이드
+직결 NIC 기능은 **호스트(Vantage 서버)와 클라이언트 PC를 전용 랜 케이블로 1:1 연결**해서,
+게임/스트리밍 트래픽을 일반 공유기망과 분리할 때 사용합니다.
+
+### 12.1 공통 준비
+1. 호스트와 PC를 이더넷 케이블로 직접 연결합니다.
+2. 양쪽 NIC가 링크 업(LED 점등) 상태인지 확인합니다.
+3. IP 대역을 정합니다. (예: 호스트 `10.77.0.1`, PC `10.77.0.2`, 마스크 `255.255.255.0`)
+4. Vantage 대시보드 `Settings > Dedicated NIC (Direct Link)`에서 다음 값을 입력합니다.
+   - `Enable direct PC link`: ON
+   - `NIC Name`: 직결에 사용할 NIC 이름 (예: `Ethernet 2`, `enp6s0`)
+   - `Host Local IP`: 예) `10.77.0.1`
+   - `Peer PC IP`: 예) `10.77.0.2`
+   - `Subnet Mask`: 예) `255.255.255.0`
+   - `MTU`: 기본 `9000` (양쪽 NIC가 jumbo frame 미지원이면 `1500` 권장)
+   - 필요 시 `Auto apply on save`: ON
+5. 저장 후 `Apply Direct Link Now`를 눌러 즉시 적용합니다.
+
+> 참고: `Detected Candidate NICs` 목록에서 NIC를 클릭하면 `NIC Name`에 자동 반영됩니다.
+
+### 12.2 호스트가 Windows인 경우
+호스트(Vantage)가 Windows라면, 적용 시 내부적으로 `netsh`를 사용해 NIC에 정적 IP/MTU를 설정합니다.
+
+#### A) 대시보드로 적용 (권장)
+- 위 공통 절차대로 저장 + `Apply Direct Link Now` 실행
+
+#### B) Windows에서 수동 확인
+PowerShell(관리자)에서 NIC 상태/IP 확인:
+```powershell
+Get-NetAdapter | Select-Object Name, Status, LinkSpeed, MacAddress
+Get-NetIPAddress -AddressFamily IPv4 | Select-Object InterfaceAlias, IPAddress, PrefixLength
+```
+
+PC 쪽에서 호스트 직결 IP 핑 테스트:
+```powershell
+ping 10.77.0.1
+```
+
+### 12.3 호스트가 Linux인 경우
+호스트(Vantage)가 Linux라면, 적용 시 내부적으로 `ip` 명령(`ip link`, `ip addr replace`)으로 정적 IP/MTU를 설정합니다.
+
+#### A) 대시보드로 적용 (권장)
+- 위 공통 절차대로 저장 + `Apply Direct Link Now` 실행
+
+#### B) Linux에서 수동 확인
+```bash
+ip -br link
+ip -br addr
+ip route
+```
+
+PC 쪽에서 호스트 직결 IP 핑 테스트:
+```bash
+ping -c 4 10.77.0.1
+```
+
+### 12.4 클라이언트 PC(상대편) IP 수동 설정
+직결 링크는 DHCP가 없을 수 있으므로, PC NIC도 같은 대역으로 **수동 IP**를 지정해야 합니다.
+
+- 예시
+  - 호스트(Vantage): `10.77.0.1/24`
+  - 클라이언트 PC: `10.77.0.2/24`
+  - 게이트웨이: 비워도 됨(직결 전용일 때)
+
+### 12.5 대시보드에서 정상 여부 확인
+`Systems & Telemetry > Direct Link NIC` 카드에서 다음을 확인합니다.
+- `Matched NIC`가 기대 NIC와 일치
+- `Host IPv4`가 설정값과 일치
+- `Link`가 `up`
+- 상태 Pill이 `Healthy`
+- `Needs Check` 또는 note 표시 시 NIC 이름/케이블/상대편 IP/MTU를 재확인
+
+## 13. 데이터 파일 위치
 - `app/data/ak620-state.json`
 - `app/data/power-history.jsonl`
 - `app/data/metrics/*.jsonl`
