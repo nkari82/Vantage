@@ -1,5 +1,5 @@
 param(
-  [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path,
+  [string]$ProjectRoot = (Resolve-Path $PSScriptRoot).Path,
   [string]$InstallRoot = "C:\opt\vantage",
   [switch]$SkipBuild,
   [switch]$WithSteamStreaming,
@@ -167,14 +167,22 @@ if (-not (Test-Path $ProjectRoot)) {
 $envDir = Join-Path $InstallRoot "env"
 $logsDir = Join-Path $InstallRoot "logs"
 $helpersDir = Join-Path $InstallRoot "helpers"
+$windowsServicesDir = Join-Path $InstallRoot "services\windows"
 $backendEnv = Join-Path $envDir "backend.env"
 $steamEnv = Join-Path $envDir "steam.env"
 $vllmComposeFile = Join-Path $InstallRoot "services\vllm-container\docker-compose.yml"
+$backendServiceScript = Join-Path $windowsServicesDir "vantage-backend.ps1"
+$vllmServiceScript = Join-Path $windowsServicesDir "vllm-coder.ps1"
+$gatewayServiceScript = Join-Path $windowsServicesDir "vantage-llm-gateway.ps1"
+$ak620ServiceScript = Join-Path $windowsServicesDir "vantage-ak620-agent.ps1"
+$adaptiveServiceScript = Join-Path $windowsServicesDir "vantage-adaptive-engine.ps1"
+$systemAgentServiceScript = Join-Path $windowsServicesDir "vantage-system-agent.ps1"
 
 Ensure-Directory $InstallRoot
 Ensure-Directory $envDir
 Ensure-Directory $logsDir
 Ensure-Directory $helpersDir
+Ensure-Directory $windowsServicesDir
 
 Write-Host "[1/7] Sync project"
 Sync-ProjectTree -Source $ProjectRoot -Destination $InstallRoot
@@ -206,8 +214,10 @@ VANTAGE_VLLM_COMPOSE_FILE=$vllmComposeFile
 "@ | Set-Content -Path $backendEnv -Encoding ASCII
 
 Write-Host "[4/7] Install services"
-Install-ServiceWithNssm -Name "VantageBackend" -Description "Vantage Backend Service" -AppDirectory (Join-Path $InstallRoot "app") -AppParameters (Join-Path $InstallRoot "app\dist\app\src\server\server.js") -StdoutLog (Join-Path $logsDir "VantageBackend.log") -StderrLog (Join-Path $logsDir "VantageBackend.error.log") -Environment @{
+Install-ServiceWithNssm -Name "VantageBackend" -Description "Vantage Backend Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $backendServiceScript) -StdoutLog (Join-Path $logsDir "VantageBackend.log") -StderrLog (Join-Path $logsDir "VantageBackend.error.log") -Environment @{
   NODE_ENV = "production"
+  VANTAGE_NODE_EXE = $NodeExe
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   VANTAGE_BACKEND_PORT = "18080"
   VANTAGE_CONFIG_PATH = (Join-Path $InstallRoot "app\config.json")
   VANTAGE_DASHBOARD_DIST = (Join-Path $InstallRoot "app\dist\client")
@@ -217,37 +227,46 @@ Install-ServiceWithNssm -Name "VantageBackend" -Description "Vantage Backend Ser
   VANTAGE_ADMIN_USERNAME = $adminUsername
   VANTAGE_ADMIN_PASSWORD_HASH = $adminPasswordHash
   VANTAGE_VLLM_COMPOSE_FILE = $vllmComposeFile
-}
-Install-ServiceWithNssm -Name "VllmCoder" -Description "Vantage vLLM Coder Service" -AppDirectory (Join-Path $InstallRoot "services\vllm-container") -AppParameters ("-NoProfile -NonInteractive -Command docker compose -f `"{0}`" up" -f $vllmComposeFile) -StdoutLog (Join-Path $logsDir "VllmCoder.log") -StderrLog (Join-Path $logsDir "VllmCoder.error.log") -Environment @{
+} -Executable "powershell.exe"
+Install-ServiceWithNssm -Name "VllmCoder" -Description "Vantage vLLM Coder Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $vllmServiceScript) -StdoutLog (Join-Path $logsDir "VllmCoder.log") -StderrLog (Join-Path $logsDir "VllmCoder.error.log") -Environment @{
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   VANTAGE_VLLM_COMPOSE_FILE = $vllmComposeFile
   VANTAGE_LOG_DIR = $logsDir
 } -Executable "powershell.exe"
-Install-ServiceWithNssm -Name "VantageLlmGateway" -Description "Vantage LLM Gateway Service" -AppDirectory (Join-Path $InstallRoot "services\llm-gateway") -AppParameters (Join-Path $InstallRoot "services\llm-gateway\dist\index.js") -StdoutLog (Join-Path $logsDir "VantageLlmGateway.log") -StderrLog (Join-Path $logsDir "VantageLlmGateway.error.log") -Environment @{
+Install-ServiceWithNssm -Name "VantageLlmGateway" -Description "Vantage LLM Gateway Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $gatewayServiceScript) -StdoutLog (Join-Path $logsDir "VantageLlmGateway.log") -StderrLog (Join-Path $logsDir "VantageLlmGateway.error.log") -Environment @{
   NODE_ENV = "production"
+  VANTAGE_NODE_EXE = $NodeExe
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   VANTAGE_LLM_GATEWAY_PORT = "8080"
   VANTAGE_BACKEND_URL = "http://127.0.0.1:18080"
   VANTAGE_UPSTREAM_URL = "http://127.0.0.1:8000"
   VANTAGE_AUTO_START_VLLM = "true"
   VANTAGE_LLM_GATEWAY_TOKEN = $gatewayToken
   VANTAGE_LOG_DIR = $logsDir
-}
-Install-ServiceWithNssm -Name "VantageAk620Agent" -Description "Vantage AK620 Agent Service" -AppDirectory (Join-Path $InstallRoot "services\ak620-agent") -AppParameters (Join-Path $InstallRoot "services\ak620-agent\dist\index.js") -StdoutLog (Join-Path $logsDir "VantageAk620Agent.log") -StderrLog (Join-Path $logsDir "VantageAk620Agent.error.log") -Environment @{
+} -Executable "powershell.exe"
+Install-ServiceWithNssm -Name "VantageAk620Agent" -Description "Vantage AK620 Agent Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $ak620ServiceScript) -StdoutLog (Join-Path $logsDir "VantageAk620Agent.log") -StderrLog (Join-Path $logsDir "VantageAk620Agent.error.log") -Environment @{
   NODE_ENV = "production"
+  VANTAGE_NODE_EXE = $NodeExe
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   AK620_REFRESH_INTERVAL = "4"
   VANTAGE_LOG_DIR = $logsDir
-}
-Install-ServiceWithNssm -Name "VantageAdaptiveEngine" -Description "Vantage Adaptive Engine Service" -AppDirectory (Join-Path $InstallRoot "services\adaptive-engine") -AppParameters (Join-Path $InstallRoot "services\adaptive-engine\dist\index.js") -StdoutLog (Join-Path $logsDir "VantageAdaptiveEngine.log") -StderrLog (Join-Path $logsDir "VantageAdaptiveEngine.error.log") -Environment @{
+} -Executable "powershell.exe"
+Install-ServiceWithNssm -Name "VantageAdaptiveEngine" -Description "Vantage Adaptive Engine Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $adaptiveServiceScript) -StdoutLog (Join-Path $logsDir "VantageAdaptiveEngine.log") -StderrLog (Join-Path $logsDir "VantageAdaptiveEngine.error.log") -Environment @{
   NODE_ENV = "production"
+  VANTAGE_NODE_EXE = $NodeExe
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   VANTAGE_BACKEND_URL = "http://127.0.0.1:18080"
   VANTAGE_ADAPTIVE_POLL_MS = "15000"
   VANTAGE_LOG_DIR = $logsDir
-}
-Install-ServiceWithNssm -Name "VantageSystemAgent" -Description "Vantage System Agent Service" -AppDirectory (Join-Path $InstallRoot "services\system-agent") -AppParameters (Join-Path $InstallRoot "services\system-agent\dist\index.js") -StdoutLog (Join-Path $logsDir "VantageSystemAgent.log") -StderrLog (Join-Path $logsDir "VantageSystemAgent.error.log") -Environment @{
+} -Executable "powershell.exe"
+Install-ServiceWithNssm -Name "VantageSystemAgent" -Description "Vantage System Agent Service" -AppDirectory $windowsServicesDir -AppParameters ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`"" -f $systemAgentServiceScript) -StdoutLog (Join-Path $logsDir "VantageSystemAgent.log") -StderrLog (Join-Path $logsDir "VantageSystemAgent.error.log") -Environment @{
   NODE_ENV = "production"
+  VANTAGE_NODE_EXE = $NodeExe
+  VANTAGE_INSTALL_ROOT = $InstallRoot
   VANTAGE_SYSTEM_AGENT_PORT = "18081"
   VANTAGE_TRACKED_SERVICES = "vantage-backend.service,vantage-llm-gateway.service,vllm-coder.service,vantage-ak620-agent.service,vantage-adaptive-engine.service,vantage-system-agent.service"
   VANTAGE_LOG_DIR = $logsDir
-}
+} -Executable "powershell.exe"
 
 Write-Host "[5/7] Open firewall"
 Ensure-FirewallRule -DisplayName "Vantage Backend HTTP" -Protocol TCP -Ports @(18080)

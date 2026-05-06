@@ -21,7 +21,10 @@ function Remove-ServiceIfExists([string]$Name) {
 
   try {
     Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue
-  } catch {}
+  }
+  catch {
+    Write-Warning "Failed to stop service '$Name' before removal: $($_.Exception.Message)"
+  }
 
   & $NssmExe stop $Name | Out-Null
   & $NssmExe remove $Name confirm | Out-Null
