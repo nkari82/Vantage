@@ -25,12 +25,13 @@ Vantage/
 │   ├── system-agent/
 │   ├── adaptive-engine/
 │   ├── vllm-container/
-│   ├── linux/
-│   ├── windows/
+│   ├── linux/        # Linux runtime assets (.service per logical service)
+│   ├── windows/      # Windows runtime assets (.ps1 per logical service)
 │   └── common/
-├── scripts/
 ├── install-vantage.sh
+├── install-vantage.ps1
 ├── uninstall-vantage.sh
+├── uninstall-vantage.ps1
 └── README.md
 ```
 
@@ -43,6 +44,7 @@ npm run start
 
 ### Windows 실행 참고
 - Windows에서는 systemd 대신 NSSM 기반 Windows 서비스(`VantageBackend`, `VantageLlmGateway`, `VllmCoder`, `VantageAk620Agent`, `VantageAdaptiveEngine`, `VantageSystemAgent`)를 사용합니다.
+- `services/windows/`는 Linux `services/linux/*.service`와 대응되도록, 논리 서비스별 PowerShell 진입 스크립트를 포함합니다.
 - `vantage-dashboard.service` / `VantageDashboard`는 더 이상 배포 대상이 아니며, 대시보드는 backend가 `app/dist/client`를 직접 서빙합니다.
 - GPU/전력 정보는 NVIDIA 드라이버 및 `nvidia-smi` 동작 여부에 따라 표시됩니다.
 - Windows 로그 API(`/api/logs`)는 `C:\opt\vantage\logs\*.log` 파일을 읽습니다.
@@ -50,9 +52,9 @@ npm run start
 
 ### Windows 자동 설치 / 제거
 ```powershell
-pwsh -ExecutionPolicy Bypass -File .\services\windows\install-vantage.ps1
-pwsh -ExecutionPolicy Bypass -File .\services\windows\install-vantage.ps1 -WithSteamStreaming
-pwsh -ExecutionPolicy Bypass -File .\services\windows\uninstall-vantage.ps1
+pwsh -ExecutionPolicy Bypass -File .\install-vantage.ps1
+pwsh -ExecutionPolicy Bypass -File .\install-vantage.ps1 -WithSteamStreaming
+pwsh -ExecutionPolicy Bypass -File .\uninstall-vantage.ps1
 ```
 
 - 기본 설치 경로: `C:\opt\vantage`
@@ -71,13 +73,16 @@ sudo ./install-vantage.sh --with-steam-streaming
 
 Linux 설치 스크립트는 다음 자산을 배포합니다.
 - systemd unit: `vantage-backend.service`, `vantage-ak620-agent.service`, `vllm-coder.service`, `vantage-llm-gateway.service`, `vantage-adaptive-engine.service`, `vantage-system-agent.service`
-- vLLM helper script: `scripts/vantage-vllm-start.sh`, `scripts/vantage-vllm-stop.sh`
 - backend env: `/etc/vantage/backend.env`
+
+Windows 설치 스크립트는 다음 자산을 배포합니다.
+- NSSM service entry script: `services/windows/vantage-backend.ps1`, `services/windows/vantage-llm-gateway.ps1`, `services/windows/vllm-coder.ps1`, `services/windows/vantage-ak620-agent.ps1`, `services/windows/vantage-adaptive-engine.ps1`, `services/windows/vantage-system-agent.ps1`
+- backend env: `C:\opt\vantage\env\backend.env`
 
 ### Windows
 ```powershell
-pwsh -ExecutionPolicy Bypass -File .\services\windows\install-vantage.ps1
-pwsh -ExecutionPolicy Bypass -File .\services\windows\install-vantage.ps1 -WithSteamStreaming
+pwsh -ExecutionPolicy Bypass -File .\install-vantage.ps1
+pwsh -ExecutionPolicy Bypass -File .\install-vantage.ps1 -WithSteamStreaming
 ```
 
 ## 7. 프로젝트 삭제 (Uninstall)
@@ -88,7 +93,7 @@ sudo ./uninstall-vantage.sh
 
 ### Windows
 ```powershell
-pwsh -ExecutionPolicy Bypass -File .\services\windows\uninstall-vantage.ps1
+pwsh -ExecutionPolicy Bypass -File .\uninstall-vantage.ps1
 ```
 
 ## 8. 검증
@@ -121,7 +126,7 @@ Invoke-RestMethod -Method Get -Uri http://localhost:18080/api/system/test/status
 - `VANTAGE_LLM_GATEWAY_TOKEN`
 - `VANTAGE_ADMIN_USERNAME`
 - `VANTAGE_ADMIN_PASSWORD_HASH`
-- `VANTAGE_VLLM_COMPOSE_FILE` (플랫폼별 vLLM compose 경로)
+- `VANTAGE_VLLM_COMPOSE_FILE` (플랫폼별 vLLM compose 경로; Linux `vllm-coder.service`와 Windows `VllmCoder`가 직접 사용)
 
 로그인은 `VANTAGE_ADMIN_USERNAME`과 설치 시 출력된 관리자 비밀번호를 사용합니다.
 

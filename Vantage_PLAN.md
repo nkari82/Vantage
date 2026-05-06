@@ -579,19 +579,14 @@ vantage/
 │  ├─ system-agent/
 │  └─ ak620-agent/
 │
-├─ scripts/
-│  ├─ vantage-power-low.sh
-│  ├─ vantage-power-standard-250.sh
-│  ├─ vantage-power-standard-280.sh
-│  ├─ (legacy turbo script removed)
-│  ├─ vantage-vllm-start.sh
-│  └─ vantage-vllm-stop.sh
-│
-├─ systemd/
-│  ├─ vantage-backend.service
-│  ├─ vantage-dashboard.service
-│  ├─ vantage-ak620-agent.service
-│  └─ vllm-coder.service
+├─ services/
+│  ├─ linux/
+│  │  ├─ vantage-backend.service
+│  │  ├─ vantage-ak620-agent.service
+│  │  └─ vllm-coder.service
+│  └─ windows/
+│     ├─ vantage-backend.ps1
+│     └─ vllm-coder.ps1
 │
 ├─ docs/
 │  ├─ HARDWARE.md
