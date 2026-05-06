@@ -23,6 +23,25 @@ export interface NetworkMetrics {
   txSec: number;
 }
 
+export interface DirectLinkStatusView {
+  configured: boolean;
+  enabled: boolean;
+  interfaceName: string;
+  actualInterfaceName: string | null;
+  localIp: string | null;
+  peerIp: string;
+  subnetMask: string;
+  mtu: number | null;
+  linkState: "up" | "down" | "unknown";
+  speedMbps: number | null;
+  dhcp: boolean | null;
+  defaultRoute: boolean | null;
+  candidateInterfaces: string[];
+  needsAttention: boolean;
+  note?: string;
+  lastAppliedAt: number | null;
+}
+
 export interface OsMetrics {
   distro: string;
   kernel: string;
@@ -177,6 +196,7 @@ export interface SystemStatus {
   system: SystemMetrics;
   gateway: GatewayStatusView;
   ak620: Ak620StatusView;
+  directLink: DirectLinkStatusView;
   alerts: string[];
 }
 
@@ -189,6 +209,17 @@ export interface Ak620Config {
 export interface AlertConfig {
   gpuTempThresholdC: number;
   memoryUsageThresholdPercent: number;
+}
+
+export interface DirectLinkConfig {
+  enabled: boolean;
+  interfaceName: string;
+  localIp: string;
+  peerIp: string;
+  subnetMask: string;
+  mtu: number;
+  autoApply: boolean;
+  lastAppliedAt: number | null;
 }
 
 export interface LowPowerModeConfig {
@@ -223,6 +254,7 @@ export interface PowerTrackingConfig {
 
 export interface AppConfig {
   ak620: Ak620Config;
+  directLink: DirectLinkConfig;
   lowPowerMode: LowPowerModeConfig;
   llmGateway: LlmGatewayConfig;
   powerModes: Record<Exclude<PowerMode, "ADAPTIVE">, PowerModeDetail>;

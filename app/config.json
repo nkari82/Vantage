@@ -4,6 +4,16 @@
     "minRefreshInterval": 1,
     "maxRefreshInterval": 60
   },
+  "directLink": {
+    "enabled": false,
+    "interfaceName": "",
+    "localIp": "10.77.0.1",
+    "peerIp": "10.77.0.2",
+    "subnetMask": "255.255.255.0",
+    "mtu": 9000,
+    "autoApply": false,
+    "lastAppliedAt": null
+  },
   "lowPowerMode": {
     "gpuPowerLimitW": 60,
     "cpuGovernor": "powersave",

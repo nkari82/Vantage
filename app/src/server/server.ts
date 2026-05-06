@@ -35,6 +35,7 @@ import { createPowerRouter } from "./api/power.js";
 import { createLlmRouter } from "./api/llm.js";
 import { createSystemRouter } from "./api/system.js";
 import { createSteamRouter } from "./api/steam.js";
+import { applyDirectLinkConfig, resolveDirectLinkStatus } from "./direct-link.js";
 import {
   getConfiguredSystemToken,
   isAdminLoginConfigured,
@@ -206,6 +207,21 @@ function saveConfig(mutator: (draft: AppConfig) => void): AppConfig {
   return config;
 }
 
+function setDirectLinkLastAppliedAt(timestamp: number | null): AppConfig {
+  return saveConfig((draft) => {
+    draft.directLink.lastAppliedAt = timestamp;
+  });
+}
+
+async function saveConfigAndMaybeApply(mutator: (draft: AppConfig) => void): Promise<AppConfig> {
+  let nextConfig = saveConfig(mutator);
+  if (nextConfig.directLink.enabled && nextConfig.directLink.autoApply) {
+    await applyDirectLinkConfig(nextConfig);
+    nextConfig = setDirectLinkLastAppliedAt(Date.now());
+  }
+  return nextConfig;
+}
+
 function makeAk620View(gpuTemp: number): Ak620StatusView {
   const statePath = path.join(runtimeDataDir, "ak620-state.json");
   try {
@@ -264,6 +280,10 @@ app.use("/api", createSystemRouter({
   saveConfig: saveConfig,
   powerTracker: powerTracker,
   controller: controller,
+  getDirectLinkLastAppliedAt: () => config.directLink.lastAppliedAt,
+  setDirectLinkLastAppliedAt: (timestamp: number | null) => {
+    setDirectLinkLastAppliedAt(timestamp);
+  },
 }));
 
 app.use("/api", createSteamRouter({
@@ -278,34 +298,47 @@ app.get("/api/config", (_req, res) => {
   res.json(config);
 });
 
-app.post("/api/config", (req, res) => {
+app.post("/api/config", async (req, res) => {
   const newConfig = req.body as Partial<AppConfig>;
-  const nextConfig = saveConfig((draft) => {
-    if (newConfig.llmGateway) {
-      draft.llmGateway = { ...draft.llmGateway, ...newConfig.llmGateway };
-    }
-    if (newConfig.ak620) {
-      draft.ak620 = { ...draft.ak620, ...newConfig.ak620 };
-    }
-    if (newConfig.alerts) {
-      draft.alerts = { ...draft.alerts, ...newConfig.alerts };
-    }
-    if (newConfig.powerTracking) {
-      draft.powerTracking = { ...draft.powerTracking, ...newConfig.powerTracking };
-    }
-    if (newConfig.lowPowerMode) {
-      draft.lowPowerMode = { ...draft.lowPowerMode, ...newConfig.lowPowerMode };
-    }
-    if (newConfig.powerModes) {
-      draft.powerModes = {
-        DEFAULT: { ...draft.powerModes.DEFAULT, ...(newConfig.powerModes.DEFAULT ?? {}) },
-        LOW_POWER: { ...draft.powerModes.LOW_POWER, ...(newConfig.powerModes.LOW_POWER ?? {}) },
-        STANDARD_250: { ...draft.powerModes.STANDARD_250, ...(newConfig.powerModes.STANDARD_250 ?? {}) },
-        STANDARD_280: { ...draft.powerModes.STANDARD_280, ...(newConfig.powerModes.STANDARD_280 ?? {}) },
-      };
-    }
-  });
-  res.json({ ok: true, config: nextConfig });
+
+  try {
+    const nextConfig = await saveConfigAndMaybeApply((draft) => {
+      if (newConfig.llmGateway) {
+        draft.llmGateway = { ...draft.llmGateway, ...newConfig.llmGateway };
+      }
+      if (newConfig.ak620) {
+        draft.ak620 = { ...draft.ak620, ...newConfig.ak620 };
+      }
+      if (newConfig.directLink) {
+        const { lastAppliedAt: _ignoredLastAppliedAt, ...clientDirectLink } = newConfig.directLink;
+        void _ignoredLastAppliedAt;
+        draft.directLink = { ...draft.directLink, ...clientDirectLink };
+      }
+      if (newConfig.alerts) {
+        draft.alerts = { ...draft.alerts, ...newConfig.alerts };
+      }
+      if (newConfig.powerTracking) {
+        draft.powerTracking = { ...draft.powerTracking, ...newConfig.powerTracking };
+      }
+      if (newConfig.lowPowerMode) {
+        draft.lowPowerMode = { ...draft.lowPowerMode, ...newConfig.lowPowerMode };
+      }
+      if (newConfig.powerModes) {
+        draft.powerModes = {
+          DEFAULT: { ...draft.powerModes.DEFAULT, ...(newConfig.powerModes.DEFAULT ?? {}) },
+          LOW_POWER: { ...draft.powerModes.LOW_POWER, ...(newConfig.powerModes.LOW_POWER ?? {}) },
+          STANDARD_250: { ...draft.powerModes.STANDARD_250, ...(newConfig.powerModes.STANDARD_250 ?? {}) },
+          STANDARD_280: { ...draft.powerModes.STANDARD_280, ...(newConfig.powerModes.STANDARD_280 ?? {}) },
+        };
+      }
+    });
+    res.json({ ok: true, config: nextConfig });
+  } catch (error) {
+    res.status(500).json({
+      error: "Failed to save config",
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 });
 
 app.post("/api/login", (req, res) => {
@@ -331,7 +364,11 @@ app.post("/api/login", (req, res) => {
 });
 
 app.get("/api/status", async (_req, res) => {
-  const [gpus, baseSystem] = await Promise.all([getGpuStatus(), getSystemMetrics()]);
+  const [gpus, baseSystem, directLink] = await Promise.all([
+    getGpuStatus(),
+    getSystemMetrics(),
+    resolveDirectLinkStatus(config, config.directLink.lastAppliedAt),
+  ]);
   const system = withEstimatedSystemPower(gpus, baseSystem);
   const gpu0 = gpus.find((g) => g.index === 0);
 
@@ -357,6 +394,7 @@ app.get("/api/status", async (_req, res) => {
       idleRemainingSeconds: getIdleRemainingSeconds(),
     },
     ak620: makeAk620View(gpu0?.temperatureC ?? 0),
+    directLink,
     alerts: checkAlerts(gpus, system),
   };
   res.json(status);

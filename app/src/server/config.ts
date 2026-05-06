@@ -20,6 +20,10 @@ function mergeConfig(parsed: Partial<AppConfig>, defaults: AppConfig): AppConfig
       ...defaults.ak620,
       ...(parsed.ak620 ?? {}),
     },
+    directLink: {
+      ...defaults.directLink,
+      ...(parsed.directLink ?? {}),
+    },
     lowPowerMode: {
       ...defaults.lowPowerMode,
       ...(parsed.lowPowerMode ?? {}),

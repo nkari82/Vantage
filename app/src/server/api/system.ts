@@ -1,6 +1,5 @@
 import express, { Router } from "express";
 import fs from "node:fs";
-import { runCommand } from "../shell.js";
 import { getGpuStatus, MONITORED_SERVICES } from "../system-monitor.js";
 import { readMetrics } from "../storage.js";
 import { getActualServiceName, getWindowsLogFilePath } from "../service-runtime.js";
@@ -12,6 +11,8 @@ import type {
   LogLevelFilter,
 } from "../../shared/types.js";
 import { PowerTracker } from "../power-tracker.js";
+import { applyDirectLinkConfig, resolveDirectLinkStatus } from "../direct-link.js";
+import { runCommand } from "../shell.js";
 
 import { ISystemController } from "@vantage/common";
 import { startStressTest, getStressStatus } from "../stress-runner.js";
@@ -97,6 +98,8 @@ export function createSystemRouter(deps: {
   saveConfig: (mutator: (draft: AppConfig) => void) => void;
   powerTracker: PowerTracker;
   controller: ISystemController;
+  getDirectLinkLastAppliedAt: () => number | null;
+  setDirectLinkLastAppliedAt: (timestamp: number | null) => void;
 }): Router {
   const router = express.Router();
 
@@ -143,6 +146,33 @@ export function createSystemRouter(deps: {
     const gpus = await getGpuStatus();
     const gpu0 = gpus.find((g) => g.index === 0);
     res.json(deps.makeAk620View(gpu0?.temperatureC ?? 0));
+  });
+
+  router.get("/system/direct-link/status", async (_req, res) => {
+    try {
+      const status = await resolveDirectLinkStatus(deps.getConfig(), deps.getDirectLinkLastAppliedAt());
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to read direct-link status",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  router.post("/system/direct-link/apply", async (_req, res) => {
+    try {
+      await applyDirectLinkConfig(deps.getConfig());
+      const timestamp = Date.now();
+      deps.setDirectLinkLastAppliedAt(timestamp);
+      const status = await resolveDirectLinkStatus(deps.getConfig(), timestamp);
+      res.json({ ok: true, status });
+    } catch (error) {
+      res.status(500).json({
+        error: "Failed to apply direct-link config",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
   });
 
   router.post("/ak620/refresh-interval", (req, res) => {
@@ -260,8 +290,8 @@ export function createSystemRouter(deps: {
       const { stdout } = await runCommand("/bin/journalctl", ["-u", service, "-n", String(Math.max(safeLines * 4, 120)), "--no-pager"]);
       const parsed = stdout
         .split("\n")
-        .map((line) => line.trimEnd())
-        .filter((line) => line.length > 0);
+        .map((line: string) => line.trimEnd())
+        .filter((line: string) => line.length > 0);
       respondWithEntries(parsed, "journalctl");
     } catch (error) {
       console.error("Failed to fetch logs", error);
