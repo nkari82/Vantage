@@ -17,6 +17,9 @@ SERVICES=(
 )
 
 echo "[1/5] Stop and disable services"
+sudo systemctl stop vantage-dashboard.service || true
+sudo systemctl disable vantage-dashboard.service || true
+sudo rm -f /etc/systemd/system/vantage-dashboard.service
 for svc in "${SERVICES[@]}"; do
   sudo systemctl stop "$svc" || true
   sudo systemctl disable "$svc" || true

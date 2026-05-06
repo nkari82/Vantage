@@ -267,7 +267,7 @@ EOF
   run_as_root chmod 0755 "$STEAM_START_HELPER" "$STEAM_END_HELPER"
 }
 
-echo "[0/11] Preflight checks"
+echo "[0/10] Preflight checks"
 require_cmd rsync
 require_cmd systemctl
 require_cmd bash
@@ -289,27 +289,27 @@ echo "[INFO] DRY_RUN=$DRY_RUN"
 echo "[INFO] SKIP_BUILD=$SKIP_BUILD"
 echo "[INFO] WITH_STEAM_STREAMING=$WITH_STEAM_STREAMING"
 
-echo "[1/11] Copy project -> ${TARGET_DIR}"
+echo "[1/10] Copy project -> ${TARGET_DIR}"
 run_as_root mkdir -p "${TARGET_DIR}"
 run_as_root rsync -av --delete "${PROJECT_SRC}/" "${TARGET_DIR}/"
 
-echo "[2/11] Create service user"
+echo "[2/10] Create service user"
 run_as_root useradd -r -s /bin/false "${SERVICE_USER}" 2>/dev/null || true
 run_as_root chown -R "${SERVICE_USER}:${SERVICE_USER}" "${TARGET_DIR}"
 
-echo "[3/11] Build app (server + dashboard)"
+echo "[3/10] Build app (server + dashboard)"
 build_node_project_if_present "${TARGET_DIR}/app" "app"
 
-echo "[4/11] Build AK620 agent (npm auto)"
+echo "[4/10] Build AK620 agent (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/ak620-agent" "ak620-agent"
 
-echo "[5/11] Build LLM gateway (npm auto)"
+echo "[5/10] Build LLM gateway (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/llm-gateway" "llm-gateway"
 
-echo "[6/11] Build adaptive-engine (npm auto)"
+echo "[6/10] Build adaptive-engine (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/adaptive-engine" "adaptive-engine"
 
-echo "[7/11] Build system-agent (npm auto)"
+echo "[7/10] Build system-agent (npm auto)"
 build_node_project_if_present "${TARGET_DIR}/services/system-agent" "system-agent"
 
 run_as_root tee /etc/sudoers.d/vantage-system <<EOF
@@ -350,22 +350,20 @@ run_as_root chown "root:${SERVICE_USER}" "$ADMIN_ENV_FILE"
 run_as_root chmod 0640 "$ADMIN_ENV_FILE"
 
 if [[ "$WITH_STEAM_STREAMING" == "true" ]]; then
-  echo "[8/11] Install Steam streaming stack"
+  echo "[8/10] Install Steam streaming stack"
   install_steam_streaming_stack "$SYSTEM_TOKEN"
 else
-  echo "[8/11] Steam streaming stack skipped"
+  echo "[8/10] Steam streaming stack skipped"
 fi
 
-echo "[9/11] Ensure executable scripts"
-run_as_root chmod +x "${TARGET_DIR}/scripts/"*.sh
-
-echo "[10/11] Install systemd units"
+echo "[9/10] Install systemd units"
 for svc in "${SERVICES[@]}"; do
   run_as_root cp "${TARGET_DIR}/services/linux/${svc}" "/etc/systemd/system/${svc}"
 done
+run_as_root rm -f /etc/systemd/system/vantage-dashboard.service
 run_as_root systemctl daemon-reload
 
-echo "[11/11] Enable + restart all core services"
+echo "[10/10] Enable + restart all core services"
 for svc in "${SERVICES[@]}"; do
   run_as_root systemctl enable "$svc"
   run_as_root systemctl restart "$svc"
