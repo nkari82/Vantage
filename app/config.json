@@ -29,7 +29,7 @@
     "autoStartVllm": true,
     "autoStopVllm": false,
     "activePowerMode": "STANDARD_280",
-    "idlePowerMode": "LOW_POWER"
+    "idlePowerMode": "DEFAULT"
   },
   "powerModes": {
     "DEFAULT": {

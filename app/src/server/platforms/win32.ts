@@ -13,7 +13,9 @@ const POWER_PLAN_GUIDS = {
 function resolvePowerPlanGuid(mode: string): string {
   switch (mode.toUpperCase()) {
     case "LOW_POWER":
-      return POWER_PLAN_GUIDS.powerSaver;
+      // Windows Power Saver can carry aggressive sleep timers and break remote connectivity.
+      // Keep LOW_POWER on Balanced for server-like always-on hosts.
+      return POWER_PLAN_GUIDS.balanced;
     case "STANDARD_250":
     case "STANDARD_280":
     case "DEFAULT":
